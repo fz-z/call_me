@@ -17,6 +17,8 @@
 - 注册 [LiveKit Cloud](https://cloud.livekit.io/) 获取 API Key
 - 注册 [阿里云 DashScope](https://dashscope.aliyun.com/) 获取 API Key
 
+> 详细步骤见 **[环境搭建指南](docs/SETUP.md)**
+
 ### 2. 配置
 
 ```bash
@@ -92,6 +94,48 @@ call_me/
 | `/api/sip/bind` | POST | 绑定 SIP 手机号（admin） |
 | `/api/sip/status` | GET | 查询 SIP 状态（admin） |
 | `/api/health` | GET | 健康检查 |
+
+## API 使用示例
+
+```bash
+BASE=http://localhost:8000
+
+# 1. 注册用户
+curl -X POST $BASE/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"secret123"}'
+# → {"token":"eyJ...","user":{"id":"...","username":"alice","role":"user"}}
+
+# 2. 登录获取 Token
+TOKEN=$(curl -s -X POST $BASE/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"secret123"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+# 3. 创建 Agent（上传音频 + 别名 + 人设）
+curl -X POST $BASE/api/agents \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "alias=温柔客服Cherry" \
+  -F "system_prompt=你是一位温柔耐心的客服，说话轻声细语" \
+  -F "audio_file=@sample.wav"
+# → {"id":"...","alias":"温柔客服Cherry","voice_id":"voice_abc123",...}
+
+# 4. 列出我的 Agent
+curl $BASE/api/agents -H "Authorization: Bearer $TOKEN"
+
+# 5. 获取通话 Token
+curl -X POST $BASE/api/call/token \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id":"<agent-id>"}'
+# → {"token":"eyJ...","room_url":"wss://..."}
+
+# 6. Admin 授权 Agent 给另一个用户
+curl -X POST $BASE/api/agents/<agent-id>/grant \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"bob"}'
+```
 
 ## 运行测试
 
