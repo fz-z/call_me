@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/agent.dart';
@@ -9,7 +10,8 @@ class ApiService {
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
-    _baseUrl = prefs.getString('server_url') ?? 'http://10.0.2.2:8000';
+    final defaultUrl = kIsWeb ? 'http://localhost:8000' : 'http://localhost:8000';
+    _baseUrl = prefs.getString('server_url') ?? defaultUrl;
     _token = prefs.getString('token');
   }
 
