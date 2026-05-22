@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 
 from database import _sync_conn
 from models import AgentOut, AgentCreate, AgentUpdate
-from auth import get_current_user, require_admin
+from auth import get_current_user
 from voice_enrollment import enroll_voice
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -96,9 +96,6 @@ def get_agent(agent_id: str, user: dict = Depends(get_current_user)):
 def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_current_user)):
     db = _sync_conn()
     try:
-        if not _user_can_access(db, agent_id, user["id"], user["role"]):
-            raise HTTPException(status_code=404, detail="Agent not found")
-
         row = db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Agent not found")

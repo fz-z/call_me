@@ -27,7 +27,8 @@ async def enroll_voice(audio_bytes: bytes, mime_type: str, api_key: str) -> str:
         "https://dashscope.aliyuncs.com/api/v1/services/audio/tts/customization",
     )
 
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=30)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.post(api_url, headers=headers, json=payload) as resp:
             raw = await resp.read()
             if resp.status >= 400:
