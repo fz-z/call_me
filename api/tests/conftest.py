@@ -1,0 +1,29 @@
+import os
+import sys
+import pytest
+
+# Ensure the api directory is on sys.path so imports work
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Force test database path before any imports
+os.environ["DATABASE_PATH"] = "/tmp/call_me_test.db"
+os.environ["JWT_SECRET"] = "test-secret-key-for-testing-32bytes-long"
+os.environ["ADMIN_USERNAME"] = "admin"
+os.environ["ADMIN_PASSWORD"] = "admin123"
+os.environ["DASHSCOPE_API_KEY"] = "test_dashscope_key"
+os.environ["LIVEKIT_URL"] = "https://livekit.example.com"
+os.environ["LIVEKIT_API_KEY"] = "test_api_key"
+os.environ["LIVEKIT_API_SECRET"] = "test_api_secret"
+
+
+@pytest.fixture(autouse=True)
+def clean_db():
+    """Remove and reinitialize the test database for each test."""
+    db_path = os.environ["DATABASE_PATH"]
+    if os.path.exists(db_path):
+        os.remove(db_path)
+    from database import init_db
+    init_db()
+    yield
+    if os.path.exists(db_path):
+        os.remove(db_path)
