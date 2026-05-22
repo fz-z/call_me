@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'services/api_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
-import 'screens/agent_list_screen.dart';
-import 'screens/settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,8 +10,7 @@ void main() async {
   await api.init();
 
   runApp(
-    ChangeNotifierProvider.value(value: api),
-    const CallMeApp(),
+    Provider<ApiService>.value(value: api, child: const CallMeApp()),
   );
 }
 

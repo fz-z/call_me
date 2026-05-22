@@ -1,0 +1,86 @@
+import 'package:flutter/material.dart';
+import 'package:livekit_client/livekit_client.dart';
+import '../models/agent.dart';
+
+class CallScreen extends StatefulWidget {
+  final Agent agent;
+  final String token;
+  final String roomUrl;
+
+  const CallScreen({super.key, required this.agent, required this.token, required this.roomUrl});
+
+  @override
+  State<CallScreen> createState() => _CallScreenState();
+}
+
+class _CallScreenState extends State<CallScreen> {
+  Room? _room;
+  bool _connected = false;
+  final _duration = Stopwatch();
+
+  @override
+  void initState() {
+    super.initState();
+    _connect();
+  }
+
+  Future<void> _connect() async {
+    final room = Room();
+    room.addListener(() {
+      if (mounted) setState(() => _connected = room.state == ConnectionState.connected);
+    });
+    try {
+      await room.connect(widget.roomUrl, widget.token);
+      _duration.start();
+      setState(() => _room = room);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connection failed: $e')));
+        Navigator.pop(context);
+      }
+    }
+  }
+
+  Future<void> _hangup() async {
+    await _room?.disconnect();
+    _duration.stop();
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  void dispose() {
+    _room?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(widget.agent.alias, style: const TextStyle(color: Colors.white, fontSize: 20)),
+            const SizedBox(height: 24),
+            const Icon(Icons.mic, size: 64, color: Colors.green),
+            const SizedBox(height: 16),
+            StreamBuilder(
+              stream: Stream.periodic(const Duration(seconds: 1)),
+              builder: (_, __) => Text(
+                '${_duration.elapsed.inMinutes}:${(_duration.elapsed.inSeconds % 60).toString().padLeft(2, '0')}',
+                style: const TextStyle(color: Colors.white70, fontSize: 24),
+              ),
+            ),
+            const SizedBox(height: 48),
+            FloatingActionButton(
+              onPressed: _hangup,
+              backgroundColor: Colors.red,
+              child: const Icon(Icons.call_end, color: Colors.white, size: 32),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
