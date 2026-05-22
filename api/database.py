@@ -68,12 +68,41 @@ def init_db():
         existing = conn.execute(
             "SELECT id FROM users WHERE username = ?", (admin_username,)
         ).fetchone()
+        admin_id = None
         if not existing:
+            admin_id = str(uuid.uuid4())
             now = datetime.now(timezone.utc).isoformat()
             conn.execute(
                 "INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)",
-                (str(uuid.uuid4()), admin_username, pwd_context.hash(admin_password), "admin", now),
+                (admin_id, admin_username, pwd_context.hash(admin_password), "admin", now),
             )
+        else:
+            admin_id = existing["id"]
+
+        # Seed default agent from env vars
+        seed_alias = os.environ.get("SEED_AGENT_ALIAS", "").strip()
+        if seed_alias:
+            seed_voice = os.environ.get("SEED_AGENT_VOICE", "Cherry").strip()
+            seed_prompt = os.environ.get("SEED_AGENT_SYSTEM_PROMPT", "").strip()
+            seed_owner = os.environ.get("SEED_AGENT_OWNER", admin_username).strip()
+
+            owner_row = conn.execute(
+                "SELECT id FROM users WHERE username = ?", (seed_owner,)
+            ).fetchone()
+            owner_id = owner_row["id"] if owner_row else admin_id
+
+            existing_agent = conn.execute(
+                "SELECT id FROM agents WHERE alias = ? AND owner_id = ?",
+                (seed_alias, owner_id),
+            ).fetchone()
+
+            if not existing_agent:
+                now = datetime.now(timezone.utc).isoformat()
+                conn.execute(
+                    "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (str(uuid.uuid4()), seed_alias, seed_voice, seed_prompt, owner_id, now),
+                )
+
         conn.commit()
     finally:
         conn.close()
