@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -42,14 +43,20 @@ server.setup_fnc = prewarm
 async def entrypoint(ctx: JobContext):
     ctx.log_context_fields = {"room": ctx.room.name}
 
-    # Read agent config from remote participants (user's token attributes)
-    # Note: cannot access local_participant before ctx.connect()
+    # Connect first, then wait for user participant to join with agent_config
+    await ctx.connect()
+
     agent_config_str = None
-    for p in ctx.room.remote_participants.values():
-        attrs = p.attributes
-        if attrs and "agent_config" in attrs:
-            agent_config_str = attrs["agent_config"]
+    # Poll for up to 15s waiting for a participant with agent_config
+    for _ in range(30):
+        for p in ctx.room.remote_participants.values():
+            attrs = p.attributes
+            if attrs and "agent_config" in attrs:
+                agent_config_str = attrs["agent_config"]
+                break
+        if agent_config_str:
             break
+        await asyncio.sleep(0.5)
 
     if not agent_config_str:
         logger.warning("No agent_config in participant attributes, using defaults")
@@ -126,8 +133,6 @@ async def entrypoint(ctx: JobContext):
             ),
         ),
     )
-
-    await ctx.connect()
 
 
 if __name__ == "__main__":
