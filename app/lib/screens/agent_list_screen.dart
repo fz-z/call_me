@@ -4,15 +4,15 @@ import '../services/api_service.dart';
 import '../models/agent.dart';
 import 'agent_create_screen.dart';
 
-class AgentListScreen extends StatefulWidget {
-  const AgentListScreen({super.key});
+class VoiceAgentListScreen extends StatefulWidget {
+  const VoiceAgentListScreen({super.key});
 
   @override
-  State<AgentListScreen> createState() => _AgentListScreenState();
+  State<VoiceAgentListScreen> createState() => _VoiceAgentListScreenState();
 }
 
-class _AgentListScreenState extends State<AgentListScreen> {
-  List<Agent> _agents = [];
+class _VoiceAgentListScreenState extends State<VoiceAgentListScreen> {
+  List<VoiceAgent> _agents = [];
   bool _loading = true;
 
   @override
@@ -25,21 +25,21 @@ class _AgentListScreenState extends State<AgentListScreen> {
     setState(() => _loading = true);
     final api = context.read<ApiService>();
     try {
-      _agents = await api.listAgents();
+      _agents = await api.listVoiceAgents();
     } catch (_) {}
     setState(() => _loading = false);
   }
 
   Future<void> _delete(String id) async {
     final api = context.read<ApiService>();
-    await api.deleteAgent(id);
+    await api.deleteVoiceAgent(id);
     await _load();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Agents')),
+      appBar: AppBar(title: const Text('VoiceAgents')),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
           final created = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => const AgentCreateScreen()));

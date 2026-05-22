@@ -14,25 +14,25 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  List<Agent> _agents = [];
-  Agent? _selectedAgent;
+  List<VoiceAgent> _agents = [];
+  VoiceAgent? _selectedVoiceAgent;
   bool _loading = true;
   int _currentIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    _loadAgents();
+    _loadVoiceAgents();
   }
 
-  Future<void> _loadAgents() async {
+  Future<void> _loadVoiceAgents() async {
     final api = context.read<ApiService>();
     try {
-      final agents = await api.listAgents();
+      final agents = await api.listVoiceAgents();
       setState(() {
         _agents = agents;
         _loading = false;
-        if (_selectedAgent == null && agents.isNotEmpty) _selectedAgent = agents.first;
+        if (_selectedVoiceAgent == null && agents.isNotEmpty) _selectedVoiceAgent = agents.first;
       });
     } catch (e) {
       setState(() => _loading = false);
@@ -40,14 +40,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _startCall() async {
-    if (_selectedAgent == null) return;
+    if (_selectedVoiceAgent == null) return;
     final api = context.read<ApiService>();
     try {
-      final result = await api.getCallToken(_selectedAgent!.id);
+      final result = await api.getCallToken(_selectedVoiceAgent!.id);
       if (mounted) {
         Navigator.push(context, MaterialPageRoute(
           builder: (_) => CallScreen(
-            agent: _selectedAgent!,
+            agent: _selectedVoiceAgent!,
             token: result['token']!,
             roomUrl: result['room_url']!,
           ),
@@ -62,7 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final screens = [
       _buildHome(),
-      const AgentListScreen(),
+      const VoiceAgentListScreen(),
       const SettingsScreen(),
     ];
 
@@ -74,7 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onTap: (i) => setState(() => _currentIndex = i),
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Agents'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'VoiceAgents'),
           BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
         ],
       ),
@@ -95,11 +95,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   if (_agents.isEmpty)
                     const Text('No agents available', style: TextStyle(fontSize: 16, color: Colors.grey))
                   else ...[
-                    DropdownButton<Agent>(
-                      value: _selectedAgent,
+                    DropdownButton<VoiceAgent>(
+                      value: _selectedVoiceAgent,
                       isExpanded: true,
                       items: _agents.map((a) => DropdownMenuItem(value: a, child: Text(a.alias))).toList(),
-                      onChanged: (a) => setState(() => _selectedAgent = a),
+                      onChanged: (a) => setState(() => _selectedVoiceAgent = a),
                     ),
                     const SizedBox(height: 24),
                     SizedBox(

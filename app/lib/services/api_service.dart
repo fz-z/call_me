@@ -56,17 +56,17 @@ class ApiService {
     await prefs.setString('token', token);
   }
 
-  // Agents
-  Future<List<Agent>> listAgents() async {
+  // VoiceAgents
+  Future<List<VoiceAgent>> listVoiceAgents() async {
     final r = await http.get(Uri.parse('$_baseUrl/api/agents'), headers: _headers);
     if (r.statusCode == 200) {
       final list = jsonDecode(r.body) as List;
-      return list.map((e) => Agent.fromJson(e)).toList();
+      return list.map((e) => VoiceAgent.fromJson(e)).toList();
     }
     throw Exception('Failed to list agents');
   }
 
-  Future<Agent> createAgent(String alias, String systemPrompt, String filePath) async {
+  Future<VoiceAgent> createAgent(String alias, String systemPrompt, String filePath) async {
     final uri = Uri.parse('$_baseUrl/api/agents');
     final request = http.MultipartRequest('POST', uri)
       ..headers['Authorization'] = 'Bearer $_token'
@@ -76,12 +76,12 @@ class ApiService {
     final streamed = await request.send();
     final r = await http.Response.fromStream(streamed);
     if (r.statusCode == 200) {
-      return Agent.fromJson(jsonDecode(r.body));
+      return VoiceAgent.fromJson(jsonDecode(r.body));
     }
     throw Exception('Failed to create agent');
   }
 
-  Future<void> deleteAgent(String id) async {
+  Future<void> deleteVoiceAgent(String id) async {
     final r = await http.delete(Uri.parse('$_baseUrl/api/agents/$id'), headers: _headers);
     if (r.statusCode != 204) throw Exception('Failed to delete agent');
   }
@@ -101,7 +101,7 @@ class ApiService {
   }
 
   // Admin
-  Future<List<Map<String, dynamic>>> listAllAgents() async {
+  Future<List<Map<String, dynamic>>> listAllVoiceAgents() async {
     final r = await http.get(Uri.parse('$_baseUrl/api/admin/agents'), headers: _headers);
     if (r.statusCode == 200) {
       return (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();

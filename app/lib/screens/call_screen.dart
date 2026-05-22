@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:livekit_client/livekit_client.dart';
+import 'package:livekit_client/livekit_client.dart' hide Agent;
 import '../models/agent.dart';
 
 class CallScreen extends StatefulWidget {
-  final Agent agent;
+  final VoiceAgent agent;
   final String token;
   final String roomUrl;
 
@@ -15,7 +15,7 @@ class CallScreen extends StatefulWidget {
 
 class _CallScreenState extends State<CallScreen> {
   Room? _room;
-  bool _connected = false;
+  bool _connecting = true;
   final _duration = Stopwatch();
 
   @override
@@ -26,13 +26,18 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _connect() async {
     final room = Room();
-    room.addListener(() {
-      if (mounted) setState(() => _connected = room.state == ConnectionState.connected);
+    room.events.listen((event) {
+      if (mounted) {
+        setState(() => _connecting = false);
+      }
     });
     try {
       await room.connect(widget.roomUrl, widget.token);
       _duration.start();
-      setState(() => _room = room);
+      setState(() {
+        _room = room;
+        _connecting = false;
+      });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connection failed: $e')));
@@ -62,8 +67,10 @@ class _CallScreenState extends State<CallScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(widget.agent.alias, style: const TextStyle(color: Colors.white, fontSize: 20)),
-            const SizedBox(height: 24),
-            const Icon(Icons.mic, size: 64, color: Colors.green),
+            const SizedBox(height: 16),
+            _connecting
+                ? const CircularProgressIndicator(color: Colors.white)
+                : const Icon(Icons.mic, size: 64, color: Colors.green),
             const SizedBox(height: 16),
             StreamBuilder(
               stream: Stream.periodic(const Duration(seconds: 1)),

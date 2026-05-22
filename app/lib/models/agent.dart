@@ -1,4 +1,4 @@
-class Agent {
+class VoiceAgent {
   final String id;
   final String alias;
   final String voiceId;
@@ -6,7 +6,7 @@ class Agent {
   final String ownerId;
   final String createdAt;
 
-  Agent({
+  VoiceAgent({
     required this.id,
     required this.alias,
     required this.voiceId,
@@ -15,8 +15,8 @@ class Agent {
     required this.createdAt,
   });
 
-  factory Agent.fromJson(Map<String, dynamic> json) {
-    return Agent(
+  factory VoiceAgent.fromJson(Map<String, dynamic> json) {
+    return VoiceAgent(
       id: json['id'],
       alias: json['alias'],
       voiceId: json['voice_id'],
