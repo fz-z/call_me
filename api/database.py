@@ -50,7 +50,7 @@ def init_db():
                 alias TEXT NOT NULL,
                 voice_id TEXT NOT NULL,
                 system_prompt TEXT NOT NULL DEFAULT '',
-                owner_id TEXT NOT NULL REFERENCES users(id),
+                owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 created_at TEXT NOT NULL
             );
 
