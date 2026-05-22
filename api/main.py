@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from database import init_db
 from auth import router as auth_router
+from agents import router as agents_router
 
 app = FastAPI(title="call_me API")
 
@@ -17,6 +18,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(agents_router)
 
 
 @app.on_event("startup")
