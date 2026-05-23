@@ -14,6 +14,9 @@ os.environ["DASHSCOPE_API_KEY"] = "test_dashscope_key"
 os.environ["LIVEKIT_URL"] = "https://livekit.example.com"
 os.environ["LIVEKIT_API_KEY"] = "test_api_key"
 os.environ["LIVEKIT_API_SECRET"] = "test_api_secret"
+os.environ["SEED_BUILTIN_VOICES"] = "Cherry"
+os.environ["SEED_TTS_FLASH_MODEL"] = "qwen3-tts-flash-realtime"
+os.environ["DEFAULT_LLM_MODEL"] = "qwen-plus"
 
 
 @pytest.fixture(autouse=True)
