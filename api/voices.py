@@ -1,11 +1,14 @@
+import base64
+import json
 import uuid
 import os
 from datetime import datetime, timezone
 
+import aiohttp
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 
 from database import _sync_conn
-from models import VoiceOut, VoiceCreate, TtsConfigOut, VoiceTtsLinkRequest
+from models import VoiceOut, VoiceCreate, VoiceManualCreate, VoiceUpdate, TtsConfigOut, VoiceTtsLinkRequest, AuditionRequest, AuditionResponse
 from auth import require_admin
 from voice_enrollment import enroll_voice
 
@@ -75,6 +78,60 @@ async def create_voice(
         db.close()
 
 
+@router.post("/manual", response_model=VoiceOut)
+def create_voice_manual(body: VoiceManualCreate, admin: dict = Depends(require_admin)):
+    if body.type not in ("builtin", "cloned"):
+        raise HTTPException(status_code=400, detail="type must be 'builtin' or 'cloned'")
+
+    db = _sync_conn()
+    try:
+        existing = db.execute("SELECT id FROM voices WHERE name = ?", (body.name,)).fetchone()
+        if existing:
+            raise HTTPException(status_code=409, detail="Voice name already exists")
+
+        voice_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        db.execute(
+            "INSERT INTO voices (id, name, voice_id, type, created_at) VALUES (?, ?, ?, ?, ?)",
+            (voice_id, body.name, body.voice_id, body.type, now),
+        )
+        if body.tts_config_id:
+            tts_exists = db.execute("SELECT id FROM tts_configs WHERE id = ?", (body.tts_config_id,)).fetchone()
+            if tts_exists:
+                db.execute(
+                    "INSERT OR IGNORE INTO voice_tts_links (voice_id, tts_config_id) VALUES (?, ?)",
+                    (voice_id, body.tts_config_id),
+                )
+        db.commit()
+        return VoiceOut(id=voice_id, name=body.name, voice_id=body.voice_id, type=body.type, created_at=now)
+    finally:
+        db.close()
+
+
+@router.patch("/{voice_id}", response_model=VoiceOut)
+def update_voice(voice_id: str, body: VoiceUpdate, admin: dict = Depends(require_admin)):
+    db = _sync_conn()
+    try:
+        voice = db.execute("SELECT * FROM voices WHERE id = ?", (voice_id,)).fetchone()
+        if not voice:
+            raise HTTPException(status_code=404, detail="Voice not found")
+
+        if body.name is not None:
+            existing = db.execute("SELECT id FROM voices WHERE name = ? AND id != ?", (body.name, voice_id)).fetchone()
+            if existing:
+                raise HTTPException(status_code=409, detail="Voice name already exists")
+            db.execute("UPDATE voices SET name = ? WHERE id = ?", (body.name, voice_id))
+
+        if body.audition_text is not None:
+            db.execute("UPDATE voices SET audition_text = ? WHERE id = ?", (body.audition_text, voice_id))
+
+        db.commit()
+        updated = db.execute("SELECT * FROM voices WHERE id = ?", (voice_id,)).fetchone()
+        return VoiceOut(**dict(updated))
+    finally:
+        db.close()
+
+
 @router.delete("/{voice_id}", status_code=204)
 def delete_voice(voice_id: str, admin: dict = Depends(require_admin)):
     db = _sync_conn()
@@ -82,9 +139,6 @@ def delete_voice(voice_id: str, admin: dict = Depends(require_admin)):
         voice = db.execute("SELECT * FROM voices WHERE id = ?", (voice_id,)).fetchone()
         if not voice:
             raise HTTPException(status_code=404, detail="Voice not found")
-        if voice["type"] == "builtin":
-            raise HTTPException(status_code=400, detail="Cannot delete built-in voice")
-
         refs = db.execute(
             "SELECT COUNT(*) as c FROM agents WHERE voice_pool_id = ?", (voice_id,)
         ).fetchone()["c"]
@@ -143,4 +197,95 @@ def unlink_voice_tts(voice_id: str, tts_id: str, admin: dict = Depends(require_a
         db.commit()
     finally:
         db.close()
+    return None
+
+
+@router.post("/{voice_id}/audition", response_model=AuditionResponse)
+async def audition_voice(voice_id: str, body: AuditionRequest, admin: dict = Depends(require_admin)):
+    db = _sync_conn()
+    try:
+        voice = db.execute("SELECT * FROM voices WHERE id = ?", (voice_id,)).fetchone()
+        if not voice:
+            raise HTTPException(status_code=404, detail="Voice not found")
+
+        tts_row = db.execute(
+            "SELECT tc.*, ak.api_key as resolved_key FROM tts_configs tc "
+            "JOIN voice_tts_links vl ON tc.id = vl.tts_config_id "
+            "LEFT JOIN api_keys ak ON tc.api_key_id = ak.id "
+            "WHERE vl.voice_id = ? "
+            "ORDER BY tc.created_at ASC LIMIT 1",
+            (voice_id,),
+        ).fetchone()
+        if not tts_row:
+            raise HTTPException(status_code=400, detail="Voice has no linked TTS config")
+    finally:
+        db.close()
+
+    provider = (tts_row["provider"] or "").lower()
+    if provider == "qwen":
+        audio_base64, mime_type = await _qwen_audition(tts_row, voice["voice_id"], body.text)
+    else:
+        raise HTTPException(status_code=400, detail=f"Audition not supported for provider: {provider}")
+
+    return {"audio_base64": audio_base64, "mime_type": mime_type}
+
+
+async def _qwen_audition(tts_row, voice_id: str, text: str) -> tuple[str, str]:
+    model = tts_row["model"]
+    api_key = tts_row["resolved_key"] or tts_row["api_key"]
+    api_url = os.environ.get(
+        "QWEN_TTS_API_URL",
+        "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+    )
+
+    req_body = {
+        "model": model,
+        "input": {
+            "text": text,
+            "voice": voice_id,
+        },
+        "parameters": {
+            "response_format": {
+                "type": "audio",
+                "format": "wav",
+            },
+        },
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    timeout = aiohttp.ClientTimeout(total=60)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.post(api_url, json=req_body, headers=headers) as r:
+            raw = await r.read()
+            if r.status >= 400:
+                snippet = raw[:500].decode("utf-8", errors="replace")
+                raise HTTPException(status_code=502, detail=f"TTS synthesis failed: {snippet}")
+
+            ctype = (r.headers.get("Content-Type") or "").lower()
+            if ctype.startswith("audio/"):
+                return base64.b64encode(raw).decode("utf-8"), ctype
+
+            obj = json.loads(raw.decode("utf-8"))
+            audio_b64 = _extract_audio_b64_from_output(obj)
+            if audio_b64:
+                return audio_b64, "audio/wav"
+
+            raise HTTPException(status_code=502, detail="No audio data in TTS response")
+
+
+def _extract_audio_b64_from_output(obj: dict) -> str | None:
+    output = obj.get("output")
+    if isinstance(output, dict):
+        audio = output.get("audio")
+        if isinstance(audio, dict):
+            for k in ("data", "audio", "audio_base64"):
+                v = audio.get(k)
+                if isinstance(v, str) and v:
+                    return v
+        if isinstance(audio, str) and audio:
+            return audio
     return None
