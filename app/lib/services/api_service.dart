@@ -59,7 +59,7 @@ class ApiService {
   }
 
   // VoiceAgents
-  Future<List<VoiceAgent>> listVoiceAgents() async {
+  Future<List<VoiceAgent>> listAgents() async {
     final r = await http.get(Uri.parse('$_baseUrl/api/agents'), headers: _headers);
     if (r.statusCode == 200) {
       final list = jsonDecode(r.body) as List;
@@ -83,9 +83,21 @@ class ApiService {
     throw Exception('Failed to create agent');
   }
 
-  Future<void> deleteVoiceAgent(String id) async {
+  Future<void> deleteAgent(String id) async {
     final r = await http.delete(Uri.parse('$_baseUrl/api/agents/$id'), headers: _headers);
     if (r.statusCode != 204) throw Exception('Failed to delete agent');
+  }
+
+  Future<VoiceAgent> updateAgent(String id, String alias, String systemPrompt) async {
+    final r = await http.patch(
+      Uri.parse('$_baseUrl/api/agents/$id'),
+      headers: _headers,
+      body: jsonEncode({'alias': alias, 'system_prompt': systemPrompt}),
+    );
+    if (r.statusCode == 200) {
+      return VoiceAgent.fromJson(jsonDecode(r.body));
+    }
+    throw Exception('Failed to update agent');
   }
 
   // Call
