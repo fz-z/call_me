@@ -1,0 +1,89 @@
+import uuid
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from database import _sync_conn
+from models import ModelConfigCreate, ModelConfigUpdate, ModelConfigOut
+from auth import require_admin
+
+router = APIRouter(prefix="/api/admin/model-configs", tags=["model-configs"])
+
+
+@router.get("", response_model=list[ModelConfigOut])
+def list_configs(admin: dict = Depends(require_admin)):
+    db = _sync_conn()
+    try:
+        rows = db.execute("SELECT * FROM model_configs ORDER BY created_at DESC").fetchall()
+        return [ModelConfigOut(**dict(r)) for r in rows]
+    finally:
+        db.close()
+
+
+@router.post("", response_model=ModelConfigOut)
+def create_config(body: ModelConfigCreate, admin: dict = Depends(require_admin)):
+    if body.provider not in ("qwen", "deepseek"):
+        raise HTTPException(status_code=400, detail="Provider must be qwen or deepseek")
+    db = _sync_conn()
+    try:
+        existing = db.execute("SELECT id FROM model_configs WHERE name = ?", (body.name,)).fetchone()
+        if existing:
+            raise HTTPException(status_code=409, detail="Config name already exists")
+
+        config_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        db.execute(
+            "INSERT INTO model_configs (id, name, provider, model, api_key, temperature, max_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (config_id, body.name, body.provider, body.model, body.api_key, body.temperature, body.max_tokens, now),
+        )
+        db.commit()
+        return ModelConfigOut(
+            id=config_id, name=body.name, provider=body.provider, model=body.model,
+            api_key=body.api_key, temperature=body.temperature, max_tokens=body.max_tokens, created_at=now,
+        )
+    finally:
+        db.close()
+
+
+@router.patch("/{config_id}", response_model=ModelConfigOut)
+def update_config(config_id: str, body: ModelConfigUpdate, admin: dict = Depends(require_admin)):
+    db = _sync_conn()
+    try:
+        row = db.execute("SELECT * FROM model_configs WHERE id = ?", (config_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Config not found")
+
+        db.execute(
+            """UPDATE model_configs SET name=?, provider=?, model=?, api_key=?,
+               temperature=?, max_tokens=? WHERE id=?""",
+            (
+                body.name if body.name is not None else row["name"],
+                body.provider if body.provider is not None else row["provider"],
+                body.model if body.model is not None else row["model"],
+                body.api_key if body.api_key is not None else row["api_key"],
+                body.temperature if body.temperature is not None else row["temperature"],
+                body.max_tokens if body.max_tokens is not None else row["max_tokens"],
+                config_id,
+            ),
+        )
+        db.commit()
+        row = db.execute("SELECT * FROM model_configs WHERE id = ?", (config_id,)).fetchone()
+        return ModelConfigOut(**dict(row))
+    finally:
+        db.close()
+
+
+@router.delete("/{config_id}", status_code=204)
+def delete_config(config_id: str, admin: dict = Depends(require_admin)):
+    db = _sync_conn()
+    try:
+        existing = db.execute("SELECT id FROM model_configs WHERE id = ?", (config_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Config not found")
+
+        db.execute("UPDATE agents SET model_config_id = NULL WHERE model_config_id = ?", (config_id,))
+        db.execute("DELETE FROM model_configs WHERE id = ?", (config_id,))
+        db.commit()
+    finally:
+        db.close()
+    return None
