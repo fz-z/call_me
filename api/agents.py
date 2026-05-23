@@ -99,14 +99,16 @@ def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_curr
 
         new_alias = body.alias if body.alias is not None else row["alias"]
         new_prompt = body.system_prompt if body.system_prompt is not None else row["system_prompt"]
+        new_model_config_id = body.model_config_id if body.model_config_id is not None else row["model_config_id"]
         db.execute(
-            "UPDATE agents SET alias = ?, system_prompt = ? WHERE id = ?",
-            (new_alias, new_prompt, agent_id),
+            "UPDATE agents SET alias = ?, system_prompt = ?, model_config_id = ? WHERE id = ?",
+            (new_alias, new_prompt, new_model_config_id, agent_id),
         )
         db.commit()
         return AgentOut(
             id=agent_id, alias=new_alias, voice_id=row["voice_id"],
-            system_prompt=new_prompt, owner_id=row["owner_id"], created_at=row["created_at"],
+            system_prompt=new_prompt, owner_id=row["owner_id"],
+            model_config_id=new_model_config_id, created_at=row["created_at"],
         )
     finally:
         db.close()
