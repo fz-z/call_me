@@ -71,9 +71,13 @@ def register(body: UserRegister):
 
 @router.post("/login", response_model=AuthResponse)
 def login(body: UserLogin):
+    username = body.username.strip()
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
     db = _sync_conn()
     try:
-        row = db.execute("SELECT * FROM users WHERE username = ?", (body.username,))
+        row = db.execute("SELECT * FROM users WHERE username = ?", (username,))
         user = row.fetchone()
         if not user or not pwd_context.verify(body.password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="Invalid username or password")
