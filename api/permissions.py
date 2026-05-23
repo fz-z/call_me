@@ -36,8 +36,8 @@ def grant_permission(agent_id: str, body: GrantRequest, admin: dict = Depends(re
         copy_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
         db.execute(
-            "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (copy_id, agent_row["alias"], agent_row["voice_id"], agent_row["system_prompt"], user_row["id"], now),
+            "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, source_agent_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (copy_id, agent_row["alias"], agent_row["voice_id"], agent_row["system_prompt"], user_row["id"], agent_id, now),
         )
         db.commit()
         return AgentOut(
@@ -61,10 +61,10 @@ def revoke_permission(agent_id: str, username: str, admin: dict = Depends(requir
         if not agent_row:
             raise HTTPException(status_code=404, detail="Agent not found")
 
-        # Delete the user's copy with matching voice_id
+        # Delete the user's copy by source_agent_id
         result = db.execute(
-            "DELETE FROM agents WHERE voice_id = ? AND owner_id = ? AND id != ?",
-            (agent_row["voice_id"], user_row["id"], agent_id),
+            "DELETE FROM agents WHERE source_agent_id = ? AND owner_id = ?",
+            (agent_id, user_row["id"]),
         )
         if result.rowcount == 0:
             raise HTTPException(status_code=404, detail="No user copy found for this agent")
