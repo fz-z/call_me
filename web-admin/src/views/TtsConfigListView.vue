@@ -38,7 +38,10 @@
           <option value="elevenlabs">elevenlabs</option>
         </select>
         <input v-model="form.model" placeholder="模型名 (如 qwen3-tts-flash-realtime)" required />
-        <input v-model="form.api_key" placeholder="API Key" type="password" required />
+        <select v-model="form.api_key_id" required>
+          <option value="">-- 选择 API Key --</option>
+          <option v-for="ak in apiKeys" :key="ak.id" :value="ak.id">{{ ak.name }} ({{ ak.provider }})</option>
+        </select>
         <p v-if="error" class="error">{{ error }}</p>
         <div class="modal-actions">
           <button type="button" class="btn-ghost" @click="closeForm">取消</button>
@@ -54,11 +57,16 @@ import { ref, reactive, onMounted } from 'vue';
 import api from '../api.js';
 
 const configs = ref([]);
+const apiKeys = ref([]);
 const showForm = ref(false);
 const editId = ref(null);
-const form = reactive({ name: '', provider: 'qwen', model: '', api_key: '' });
+const form = reactive({ name: '', provider: 'qwen', model: '', api_key_id: '' });
 const loading = ref(false);
 const error = ref('');
+
+async function loadApiKeys() {
+  try { const r = await api.get('/admin/api-keys'); apiKeys.value = r.data; } catch (_) {}
+}
 
 async function load() {
   const r1 = await api.get('/admin/tts-configs');
@@ -79,7 +87,7 @@ function edit(tc) {
   form.name = tc.name;
   form.provider = tc.provider;
   form.model = tc.model;
-  form.api_key = tc.api_key;
+  form.api_key_id = tc.api_key_id || '';
   showForm.value = true;
 }
 
@@ -89,7 +97,7 @@ function closeForm() {
   form.name = '';
   form.provider = 'qwen';
   form.model = '';
-  form.api_key = '';
+  form.api_key_id = '';
   error.value = '';
 }
 
@@ -97,20 +105,16 @@ async function submit() {
   loading.value = true;
   error.value = '';
   try {
+    const payload = {
+      name: form.name,
+      provider: form.provider,
+      model: form.model,
+      api_key_id: form.api_key_id || null,
+    };
     if (editId.value) {
-      await api.patch(`/admin/tts-configs/${editId.value}`, {
-        name: form.name,
-        provider: form.provider,
-        model: form.model,
-        api_key: form.api_key,
-      });
+      await api.patch(`/admin/tts-configs/${editId.value}`, payload);
     } else {
-      await api.post('/admin/tts-configs', {
-        name: form.name,
-        provider: form.provider,
-        model: form.model,
-        api_key: form.api_key,
-      });
+      await api.post('/admin/tts-configs', payload);
     }
     closeForm();
     await load();
@@ -131,7 +135,7 @@ async function del(tc) {
   await load();
 }
 
-onMounted(load);
+onMounted(() => { loadApiKeys(); load(); });
 </script>
 
 <style scoped>
