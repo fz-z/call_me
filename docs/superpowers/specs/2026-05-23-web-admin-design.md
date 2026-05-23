@@ -57,6 +57,7 @@ GET  /api/admin/agents/{id}/copies   → list all copies of a root agent (source
 GET  /api/admin/users/{username}/agents  → list agents owned by a user (already exists, ensure it works)
 POST /api/agents/{id}/grant          → create copy for user (already exists, add source_agent_id)
 DELETE /api/agents/{id}/grant/{username} → delete user's copy (already exists)
+DELETE /api/admin/users/{username}   → delete user and all their agents (admin only, cannot delete self)
 ```
 
 Modify existing grant endpoint to set `source_agent_id` on the copy.
@@ -110,9 +111,10 @@ web-admin/
 - "Grant to new user" button at top
 
 ### 4. User List
-- Table: username, role, agents (tags with ✕), registered date, detail link
+- Table: username, role, agents (tags with ✕), registered date, actions
 - Each agent tag on ✕ → revoke
 - "View Detail" → UserDetailView
+- "Delete" → ConfirmDialog → deletes user and all their agents (cannot delete self)
 
 ### 5. User Detail
 - Header: username, role
