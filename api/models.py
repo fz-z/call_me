@@ -31,6 +31,8 @@ class AgentCreate(BaseModel):
     alias: str
     system_prompt: str = ""
     voice_pool_id: str
+    model_config_id: Optional[str] = None
+    tts_config_id: Optional[str] = None
 
 
 class AgentUpdate(BaseModel):
@@ -166,6 +168,17 @@ class VoiceOut(BaseModel):
 
 class VoiceCreate(BaseModel):
     name: str
+
+
+class VoiceManualCreate(BaseModel):
+    name: str
+    voice_id: str
+    type: str = "cloned"
+    tts_config_id: Optional[str] = None
+
+
+class VoiceUpdate(BaseModel):
+    name: Optional[str] = None
 
 
 class SipBindRequest(BaseModel):
