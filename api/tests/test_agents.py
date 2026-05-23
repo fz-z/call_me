@@ -1,6 +1,4 @@
-import io
 import pytest
-from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 from main import app
 
@@ -10,43 +8,49 @@ client = TestClient(app)
 from tests.test_auth import _auth_header, _admin_header
 
 
+def _get_voice_pool_id(db=None):
+    """Get a voice_pool_id from the seeded built-in voices."""
+    from database import _sync_conn
+    conn = _sync_conn()
+    try:
+        row = conn.execute("SELECT id FROM voices WHERE name = 'Cherry'").fetchone()
+        return row["id"]
+    finally:
+        conn.close()
+
+
 class TestAgentCRUD:
     def test_list_empty(self, clean_db):
         resp = client.get("/api/agents", headers=_auth_header())
         assert resp.status_code == 200
         assert resp.json() == []
 
-    @patch("agents.enroll_voice", new_callable=AsyncMock)
-    def test_create_agent(self, mock_enroll, clean_db):
-        mock_enroll.return_value = "voice_abc123"
+    def test_create_agent(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
 
         resp = client.post(
             "/api/agents",
             headers=_auth_header(),
-            data={"alias": "Test Agent", "system_prompt": "Be helpful"},
-            files={"audio_file": ("test.wav", io.BytesIO(b"fake audio"), "audio/wav")},
+            json={"alias": "Test Agent", "system_prompt": "Be helpful", "voice_pool_id": voice_pool_id},
         )
         assert resp.status_code == 200, resp.text
         data = resp.json()
         assert data["alias"] == "Test Agent"
-        assert data["voice_id"] == "voice_abc123"
+        assert data["voice_id"] == "Cherry"
+        assert data["voice_pool_id"] == voice_pool_id
         assert data["system_prompt"] == "Be helpful"
 
-    @patch("agents.enroll_voice", new_callable=AsyncMock)
-    def test_list_after_create(self, mock_enroll, clean_db):
-        mock_enroll.return_value = "voice_xyz"
+    def test_list_after_create(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
         headers = _auth_header()
 
         client.post(
             "/api/agents", headers=headers,
-            data={"alias": "Agent 1", "system_prompt": "Prompt 1"},
-            files={"audio_file": ("test.wav", io.BytesIO(b"fake"), "audio/wav")},
+            json={"alias": "Agent 1", "system_prompt": "Prompt 1", "voice_pool_id": voice_pool_id},
         )
-        mock_enroll.return_value = "voice_abc"
         client.post(
             "/api/agents", headers=headers,
-            data={"alias": "Agent 2", "system_prompt": "Prompt 2"},
-            files={"audio_file": ("test.wav", io.BytesIO(b"fake"), "audio/wav")},
+            json={"alias": "Agent 2", "system_prompt": "Prompt 2", "voice_pool_id": voice_pool_id},
         )
 
         resp = client.get("/api/agents", headers=headers)
@@ -54,15 +58,13 @@ class TestAgentCRUD:
         agents = resp.json()
         assert len(agents) == 2
 
-    @patch("agents.enroll_voice", new_callable=AsyncMock)
-    def test_get_agent(self, mock_enroll, clean_db):
-        mock_enroll.return_value = "voice_get"
+    def test_get_agent(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
         headers = _auth_header("owner", "pw")
 
         create_resp = client.post(
             "/api/agents", headers=headers,
-            data={"alias": "Get Me", "system_prompt": "Hi"},
-            files={"audio_file": ("test.wav", io.BytesIO(b"fake"), "audio/wav")},
+            json={"alias": "Get Me", "system_prompt": "Hi", "voice_pool_id": voice_pool_id},
         )
         agent_id = create_resp.json()["id"]
 
@@ -70,15 +72,13 @@ class TestAgentCRUD:
         assert resp.status_code == 200
         assert resp.json()["alias"] == "Get Me"
 
-    @patch("agents.enroll_voice", new_callable=AsyncMock)
-    def test_update_agent(self, mock_enroll, clean_db):
-        mock_enroll.return_value = "voice_upd"
+    def test_update_agent(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
         headers = _auth_header("updater", "pw")
 
         create_resp = client.post(
             "/api/agents", headers=headers,
-            data={"alias": "Old Name", "system_prompt": "Old Prompt"},
-            files={"audio_file": ("test.wav", io.BytesIO(b"fake"), "audio/wav")},
+            json={"alias": "Old Name", "system_prompt": "Old Prompt", "voice_pool_id": voice_pool_id},
         )
         agent_id = create_resp.json()["id"]
 
@@ -91,15 +91,13 @@ class TestAgentCRUD:
         assert data["alias"] == "New Name"
         assert data["system_prompt"] == "New Prompt"
 
-    @patch("agents.enroll_voice", new_callable=AsyncMock)
-    def test_delete_agent(self, mock_enroll, clean_db):
-        mock_enroll.return_value = "voice_del"
+    def test_delete_agent(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
         headers = _auth_header("deleter", "pw")
 
         create_resp = client.post(
             "/api/agents", headers=headers,
-            data={"alias": "Delete Me", "system_prompt": "Bye"},
-            files={"audio_file": ("test.wav", io.BytesIO(b"fake"), "audio/wav")},
+            json={"alias": "Delete Me", "system_prompt": "Bye", "voice_pool_id": voice_pool_id},
         )
         agent_id = create_resp.json()["id"]
 
@@ -110,15 +108,13 @@ class TestAgentCRUD:
         resp = client.get(f"/api/agents/{agent_id}", headers=headers)
         assert resp.status_code == 404
 
-    @patch("agents.enroll_voice", new_callable=AsyncMock)
-    def test_cannot_access_others_agent(self, mock_enroll, clean_db):
-        mock_enroll.return_value = "voice_priv"
+    def test_cannot_access_others_agent(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
         owner_headers = _auth_header("owner", "pw")
 
         create_resp = client.post(
             "/api/agents", headers=owner_headers,
-            data={"alias": "Private Agent", "system_prompt": "Secret"},
-            files={"audio_file": ("test.wav", io.BytesIO(b"fake"), "audio/wav")},
+            json={"alias": "Private Agent", "system_prompt": "Secret", "voice_pool_id": voice_pool_id},
         )
         agent_id = create_resp.json()["id"]
 
@@ -126,15 +122,13 @@ class TestAgentCRUD:
         resp = client.get(f"/api/agents/{agent_id}", headers=other_headers)
         assert resp.status_code == 404
 
-    @patch("agents.enroll_voice", new_callable=AsyncMock)
-    def test_admin_can_access_all(self, mock_enroll, clean_db):
-        mock_enroll.return_value = "voice_admin"
+    def test_admin_can_access_all(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
         headers = _auth_header("someone", "pw")
 
         create_resp = client.post(
             "/api/agents", headers=headers,
-            data={"alias": "Someone Agent", "system_prompt": "Prompt"},
-            files={"audio_file": ("test.wav", io.BytesIO(b"fake"), "audio/wav")},
+            json={"alias": "Someone Agent", "system_prompt": "Prompt", "voice_pool_id": voice_pool_id},
         )
         agent_id = create_resp.json()["id"]
 
