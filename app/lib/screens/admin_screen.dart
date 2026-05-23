@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/api_service.dart';
 
+String _truncate(String text, int maxLen) => text.length > maxLen ? '${text.substring(0, maxLen)}...' : text;
+
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
 
@@ -136,13 +138,13 @@ class _AdminScreenState extends State<AdminScreen> {
       itemCount: entries.length,
       itemBuilder: (_, i) {
         final e = entries[i];
-        final username = idToUsername[e.key] ?? e.key.substring(0, 8);
+        final username = idToUsername[e.key] ?? _truncate(e.key, 8);
         return ExpansionTile(
           leading: const Icon(Icons.person),
           title: Text('$username (${e.value.length} agents)'),
           children: e.value.map((a) => ListTile(
             title: Text(a['alias'] ?? ''),
-            subtitle: Text('Prompt: ${(a['system_prompt'] ?? '').toString().substring(0, 50)}...'),
+            subtitle: Text('Prompt: ${_truncate((a['system_prompt'] ?? '').toString(), 50)}'),
             trailing: IconButton(
               icon: const Icon(Icons.delete_outline, size: 20),
               onPressed: () => _deleteAgent(a['id'], a['alias'] ?? ''),
@@ -160,7 +162,7 @@ class _AdminScreenState extends State<AdminScreen> {
         final a = _agents[i];
         return ListTile(
           title: Text(a['alias'] ?? ''),
-          subtitle: Text('Voice: ${(a['voice_id'] ?? '').toString().substring(0, 25)}...'),
+          subtitle: Text('Voice: ${_truncate((a['voice_id'] ?? '').toString(), 25)}'),
           trailing: IconButton(
             icon: const Icon(Icons.person_add),
             onPressed: () => _grant(a['id']),
