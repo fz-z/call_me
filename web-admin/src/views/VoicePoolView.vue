@@ -84,6 +84,21 @@
           style="width:100%;box-sizing:border-box;resize:vertical;margin-bottom:12px"
           placeholder="试听文本 (可选)"
         ></textarea>
+        <div style="margin-bottom:12px">
+          <label style="display:block;font-size:12px;color:#aaa;margin-bottom:4px">TTS 模型</label>
+          <div v-for="tc in editForm._ttsConfigs" :key="tc.id" style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span class="tag" style="background:#1a3a5c">{{ tc.name }} ({{ tc.model }})</span>
+            <button type="button" class="btn-ghost" style="color:#e74c3c;font-size:12px" @click="removeTtsLink(tc.id)">×</button>
+          </div>
+          <div v-if="!editForm._ttsConfigs?.length" style="color:#888;font-size:12px;margin-bottom:4px">暂无关联 TTS 模型</div>
+          <div style="display:flex;gap:8px">
+            <select v-model="editForm._addTtsId" style="flex:1">
+              <option value="">-- 添加 TTS 模型 --</option>
+              <option v-for="tc in availableTtsForEdit" :key="tc.id" :value="tc.id">{{ tc.name }} ({{ tc.model }})</option>
+            </select>
+            <button type="button" class="btn-ghost" :disabled="!editForm._addTtsId" @click="addTtsLink">添加</button>
+          </div>
+        </div>
         <p v-if="editError" class="error">{{ editError }}</p>
         <div class="modal-actions">
           <button type="button" class="btn-ghost" @click="showEdit = false">取消</button>
@@ -124,7 +139,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import api from '../api.js';
 
 const voices = ref([]);
@@ -143,7 +158,12 @@ const manualForm = reactive({ name: '', voice_id: '', type: 'cloned', tts_config
 const showEdit = ref(false);
 const editLoading = ref(false);
 const editError = ref('');
-const editForm = reactive({ id: '', name: '', audition_text: '' });
+const editForm = reactive({ id: '', name: '', audition_text: '', _ttsConfigs: [], _addTtsId: '' });
+
+const availableTtsForEdit = computed(() => {
+  const linked = editForm._ttsConfigs?.map(c => c.id) || [];
+  return ttsConfigs.value.filter(tc => !linked.includes(tc.id));
+});
 
 const showAudition = ref(false);
 const auditionVoice = ref(null);
@@ -216,11 +236,18 @@ async function manualAdd() {
   } finally { manualLoading.value = false; }
 }
 
-function startEdit(v) {
+async function startEdit(v) {
   editForm.id = v.id;
   editForm.name = v.name;
   editForm.audition_text = v.audition_text || '';
+  editForm._addTtsId = '';
   editError.value = '';
+  try {
+    const r = await api.get(`/admin/voices/${v.id}/tts-configs`);
+    editForm._ttsConfigs = r.data;
+  } catch (_) {
+    editForm._ttsConfigs = [];
+  }
   showEdit.value = true;
 }
 
@@ -292,6 +319,28 @@ function stopAudition() {
     auditionAudio = null;
   }
   auditionPlaying.value = false;
+}
+
+async function addTtsLink() {
+  if (!editForm._addTtsId) return;
+  try {
+    await api.post(`/admin/voices/${editForm.id}/tts-configs`, { tts_config_id: editForm._addTtsId });
+    const r = await api.get(`/admin/voices/${editForm.id}/tts-configs`);
+    editForm._ttsConfigs = r.data;
+    editForm._addTtsId = '';
+  } catch (e) {
+    alert(e.response?.data?.detail || 'Failed to add TTS link');
+  }
+}
+
+async function removeTtsLink(ttsId) {
+  try {
+    await api.delete(`/admin/voices/${editForm.id}/tts-configs/${ttsId}`);
+    const r = await api.get(`/admin/voices/${editForm.id}/tts-configs`);
+    editForm._ttsConfigs = r.data;
+  } catch (e) {
+    alert(e.response?.data?.detail || 'Failed to remove TTS link');
+  }
 }
 
 onMounted(load);
