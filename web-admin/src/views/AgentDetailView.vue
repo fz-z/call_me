@@ -6,7 +6,14 @@
       <button class="btn btn-primary" @click="showGrant = true">+ 授权给新用户</button>
     </div>
     <div style="background:#1a1a2e;border-radius:8px;padding:16px;margin-bottom:16px">
-      <h4 style="margin-bottom:12px">Pipeline 配置</h4>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h4 style="margin:0">Pipeline 配置</h4>
+        <button class="btn-ghost" @click="startEditPipeline">编辑配置</button>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #222">
+        <span style="color:#888">音色</span>
+        <span style="color:#4a90d9">{{ getVoiceName(agent.voice_pool_id) }}</span>
+      </div>
       <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #222">
         <span style="color:#888">LLM</span>
         <span>{{ agent.model_config_id ? getConfigName(agent.model_config_id) : '系统默认 (.env)' }}</span>
@@ -19,7 +26,6 @@
         <span style="color:#888">STT</span>
         <span style="color:#888">全局配置</span>
       </div>
-      <div style="margin-top:8px;font-size:11px;color:#666">LLM 模型在"LLM模型"页面管理。人设可通过编辑修改。</div>
     </div>
     <table>
       <thead><tr>
@@ -31,7 +37,8 @@
           <td style="color:#888;max-width:300px">{{ c.system_prompt }}</td>
           <td style="color:#888;font-size:12px">{{ (c.created_at || '').substring(0, 10) }}</td>
           <td>
-            <button class="btn-ghost" style="color:#e74c3c" @click="revoke(c.owner_id)">回收授权</button>
+            <button class="btn-ghost" @click="startEditCopy(c)">编辑人设</button>
+            <button class="btn-ghost" style="color:#e74c3c;margin-left:4px" @click="revoke(c.owner_id)">回收授权</button>
           </td>
         </tr>
         <tr v-if="!copies.length">
@@ -40,6 +47,49 @@
       </tbody>
     </table>
     <GrantDialog v-if="showGrant" :agent="agent" @close="showGrant = false" @done="load" />
+
+    <!-- Edit Pipeline config -->
+    <div v-if="showPipelineEdit" class="modal-overlay" @click.self="showPipelineEdit = false">
+      <form class="modal" @submit.prevent="savePipeline" style="min-width:420px">
+        <h3>编辑 Pipeline 配置</h3>
+        <label style="display:block;margin:12px 0 4px;color:#888;font-size:13px">TTS 模型</label>
+        <select v-model="pipelineForm.tts_config_id" @change="onTtsChange">
+          <option value="">系统默认 (.env)</option>
+          <option v-for="t in ttsConfigs" :key="t.id" :value="t.id">{{ t.name }} ({{ t.provider }}/{{ t.model }})</option>
+        </select>
+        <label style="display:block;margin:12px 0 4px;color:#888;font-size:13px">音色</label>
+        <p v-if="!filteredVoices.length && pipelineForm.tts_config_id" style="color:#888;font-size:11px;margin-bottom:4px">
+          {{ loadingFilteredVoices ? '加载中...' : '此 TTS 模型暂无关联声音' }}
+        </p>
+        <select v-model="pipelineForm.voice_pool_id">
+          <option value="">系统默认 (.env)</option>
+          <option v-for="v in filteredVoices" :key="v.id" :value="v.id">{{ v.name }} ({{ v.type === 'builtin' ? '内置' : '克隆' }})</option>
+        </select>
+        <label style="display:block;margin:12px 0 4px;color:#888;font-size:13px">LLM 模型</label>
+        <select v-model="pipelineForm.model_config_id">
+          <option value="">系统默认 (.env)</option>
+          <option v-for="m in modelConfigs" :key="m.id" :value="m.id">{{ m.name }} ({{ m.provider }}/{{ m.model }})</option>
+        </select>
+        <p v-if="pipelineEditError" class="error">{{ pipelineEditError }}</p>
+        <div class="modal-actions" style="margin-top:16px">
+          <button type="button" class="btn-ghost" @click="showPipelineEdit = false">取消</button>
+          <button type="submit" class="btn btn-primary" :disabled="pipelineEditLoading">保存</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Edit copy system prompt -->
+    <div v-if="editingCopy" class="modal-overlay" @click.self="editingCopy = null">
+      <form class="modal" @submit.prevent="saveEditCopy" style="min-width:400px">
+        <h3>编辑 {{ getUserName(editingCopy.owner_id) }} 的人设</h3>
+        <textarea v-model="editPromptText" rows="6" style="width:100%;background:#111;color:#ddd;border:1px solid #333;border-radius:6px;padding:10px;font-size:14px" placeholder="输入新的 system prompt"></textarea>
+        <p v-if="editPromptError" class="error">{{ editPromptError }}</p>
+        <div class="modal-actions">
+          <button type="button" class="btn-ghost" @click="editingCopy = null">取消</button>
+          <button type="submit" class="btn btn-primary" :disabled="editPromptLoading">保存</button>
+        </div>
+      </form>
+    </div>
   </div>
 </template>
 
@@ -56,6 +106,17 @@ const users = ref([]);
 const modelConfigs = ref([]);
 const ttsConfigs = ref([]);
 const showGrant = ref(false);
+const editingCopy = ref(null);
+const editPromptText = ref('');
+const editPromptLoading = ref(false);
+const editPromptError = ref('');
+const voices = ref([]);
+const filteredVoices = ref([]);
+const loadingFilteredVoices = ref(false);
+const showPipelineEdit = ref(false);
+const pipelineForm = ref({ voice_pool_id: null, model_config_id: null, tts_config_id: null });
+const pipelineEditLoading = ref(false);
+const pipelineEditError = ref('');
 
 async function load() {
   const id = route.params.id;
@@ -65,12 +126,14 @@ async function load() {
     api.get('/admin/users'),
     api.get('/admin/model-configs'),
     api.get('/admin/tts-configs'),
+    api.get('/admin/voices'),
   ]);
   agent.value = r1.data;
   copies.value = r2.data;
   users.value = r3.data;
   modelConfigs.value = r4.data;
   ttsConfigs.value = r5.data;
+  voices.value = r6.data;
 }
 
 function getConfigName(id) {
@@ -85,6 +148,77 @@ function getTtsConfigName(id) {
 
 function getUserName(uid) {
   return users.value.find(u => u.id === uid)?.username || (uid || '').substring(0, 8);
+}
+
+function getVoiceName(id) {
+  if (!id) return '系统默认 (.env)';
+  const v = voices.value.find(x => x.id === id);
+  return v ? `${v.name} (${v.voice_id?.substring(0, 20)}...)` : id.substring(0, 8);
+}
+
+async function loadFilteredVoices(ttsConfigId) {
+  if (!ttsConfigId) {
+    filteredVoices.value = [];
+    return;
+  }
+  loadingFilteredVoices.value = true;
+  try {
+    const r = await api.get(`/admin/voices?tts_config_id=${ttsConfigId}`);
+    filteredVoices.value = r.data;
+  } catch (_) {
+    filteredVoices.value = [];
+  } finally {
+    loadingFilteredVoices.value = false;
+  }
+}
+
+async function onTtsChange() {
+  pipelineForm.value.voice_pool_id = '';
+  await loadFilteredVoices(pipelineForm.value.tts_config_id);
+}
+
+async function startEditPipeline() {
+  pipelineForm.value = {
+    voice_pool_id: agent.value.voice_pool_id || '',
+    model_config_id: agent.value.model_config_id || '',
+    tts_config_id: agent.value.tts_config_id || '',
+  };
+  await loadFilteredVoices(pipelineForm.value.tts_config_id);
+  pipelineEditError.value = '';
+  showPipelineEdit.value = true;
+}
+
+async function savePipeline() {
+  pipelineEditLoading.value = true; pipelineEditError.value = '';
+  try {
+    await api.patch(`/agents/${agent.value.id}`, {
+      voice_pool_id: pipelineForm.value.voice_pool_id || '',
+      model_config_id: pipelineForm.value.model_config_id || '',
+      tts_config_id: pipelineForm.value.tts_config_id || '',
+    });
+    showPipelineEdit.value = false;
+    await load();
+  } catch (e) {
+    pipelineEditError.value = e.response?.data?.detail || 'Update failed';
+  } finally { pipelineEditLoading.value = false; }
+}
+
+function startEditCopy(c) {
+  editingCopy.value = c;
+  editPromptText.value = c.system_prompt || '';
+  editPromptError.value = '';
+}
+
+async function saveEditCopy() {
+  if (!editPromptText.value.trim()) return;
+  editPromptLoading.value = true; editPromptError.value = '';
+  try {
+    await api.patch(`/agents/${editingCopy.value.id}`, { system_prompt: editPromptText.value.trim() });
+    editingCopy.value = null;
+    await load();
+  } catch (e) {
+    editPromptError.value = e.response?.data?.detail || 'Update failed';
+  } finally { editPromptLoading.value = false; }
 }
 
 async function revoke(ownerId) {
