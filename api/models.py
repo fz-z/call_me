@@ -179,6 +179,16 @@ class VoiceManualCreate(BaseModel):
 
 class VoiceUpdate(BaseModel):
     name: Optional[str] = None
+    audition_text: Optional[str] = None
+
+
+class AuditionRequest(BaseModel):
+    text: str
+
+
+class AuditionResponse(BaseModel):
+    audio_base64: str
+    mime_type: str
 
 
 class SipBindRequest(BaseModel):
