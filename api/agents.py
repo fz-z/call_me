@@ -50,6 +50,7 @@ def create_agent(
         db.execute(
             "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, voice_pool_id, model_config_id, tts_config_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (agent_id, body.alias, voice["voice_id"], body.system_prompt, user["id"], body.voice_pool_id, body.model_config_id, body.tts_config_id, now),
+            (agent_id, body.alias, voice["voice_id"], body.system_prompt, user["id"], body.voice_pool_id, body.model_config_id, body.tts_config_id, now),
         )
         db.commit()
         return AgentOut(
