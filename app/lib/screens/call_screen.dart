@@ -15,6 +15,7 @@ class CallScreen extends StatefulWidget {
 
 class _CallScreenState extends State<CallScreen> {
   Room? _room;
+  LocalAudioTrack? _localTrack;
   bool _connecting = true;
   final _duration = Stopwatch();
 
@@ -27,12 +28,27 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _connect() async {
     final room = Room();
     room.events.listen((event) {
-      if (mounted) {
-        setState(() => _connecting = false);
-      }
+      if (mounted) setState(() => _connecting = false);
     });
+
     try {
       await room.connect(widget.roomUrl, widget.token);
+
+      // Publish local microphone so the agent can hear the user
+      try {
+        final track = LocalAudioTrack.create();
+        await room.localParticipant!.publishAudioTrack(track);
+        _localTrack = track;
+      } catch (e) {
+        // Microphone might not be available (e.g., web permissions)
+        debugPrint('Failed to publish microphone: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Microphone unavailable. Agent cannot hear you.')),
+          );
+        }
+      }
+
       _duration.start();
       setState(() {
         _room = room;
@@ -47,6 +63,7 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _hangup() async {
+    await _localTrack?.stop();
     await _room?.disconnect();
     _duration.stop();
     if (mounted) Navigator.pop(context);
@@ -54,6 +71,7 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    _localTrack?.stop();
     _room?.dispose();
     super.dispose();
   }
