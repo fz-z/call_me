@@ -11,6 +11,7 @@ from livekit.agents import (
     AgentSession,
     JobContext,
     JobProcess,
+    TurnHandlingOptions,
     cli,
     room_io,
 )
@@ -120,9 +121,10 @@ async def entrypoint(ctx: JobContext):
         stt=stt,
         llm=llm,
         tts=tts,
-        turn_detection=MultilingualModel(),
-        vad=ctx.proc.userdata["vad"],
-        preemptive_generation=True,
+        turn_handling=TurnHandlingOptions(
+            turn_detector=MultilingualModel(),
+            vad=ctx.proc.userdata["vad"],
+        ),
     )
 
     await session.start(
