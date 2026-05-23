@@ -120,22 +120,41 @@ async def entrypoint(ctx: JobContext):
         from livekit.agents import inference
         stt = inference.STT(model=stt_model, language=stt_language)
 
-    # TTS — pass voice_id if available for cloned voice
-    tts_provider = os.getenv("TTS_PROVIDER", "livekit").strip().lower()
-    if tts_provider == "qwen":
-        tts_model = os.getenv("QWEN_TTS_MODEL", "qwen3-tts-vc-realtime-2026-01-15")
-        tts = QwenTTS(
-            api_url=os.getenv("QWEN_TTS_API_URL", "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"),
-            api_key=os.getenv("DASHSCOPE_API_KEY", ""),
-            model=tts_model,
-            voice_id=voice_id,
-        )
+    # TTS — use tts_config from token if available, otherwise .env default
+    if config and config.get("tts_config"):
+        tc = config["tts_config"]
+        tc_provider = tc["provider"]
+        if tc_provider == "qwen":
+            tts = QwenTTS(
+                api_url=os.getenv("QWEN_TTS_API_URL", "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"),
+                api_key=tc["api_key"],
+                model=tc["model"],
+                voice_id=voice_id,
+            )
+            tts_provider = "qwen"
+        else:
+            logger.warning(f"Unknown tts_config provider: {tc_provider}, falling back to .env")
+            config = None
     else:
-        from livekit.agents import inference
-        tts = inference.TTS(
-            model=os.getenv("TTS_MODEL", "cartesia/sonic-3"),
-            voice=os.getenv("TTS_VOICE", "694f17b5-0c44-42bd-9d88-f18e9a5e40a1"),
-        )
+        config = None
+
+    if not config or not config.get("tts_config"):
+        # Fallback to .env defaults
+        tts_provider = os.getenv("TTS_PROVIDER", "livekit").strip().lower()
+        if tts_provider == "qwen":
+            tts_model = os.getenv("QWEN_TTS_MODEL", "qwen3-tts-vc-realtime-2026-01-15")
+            tts = QwenTTS(
+                api_url=os.getenv("QWEN_TTS_API_URL", "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"),
+                api_key=os.getenv("DASHSCOPE_API_KEY", ""),
+                model=tts_model,
+                voice_id=voice_id,
+            )
+        else:
+            from livekit.agents import inference
+            tts = inference.TTS(
+                model=os.getenv("TTS_MODEL", "cartesia/sonic-3"),
+                voice=os.getenv("TTS_VOICE", "694f17b5-0c44-42bd-9d88-f18e9a5e40a1"),
+            )
 
     logger.info("pipeline config", extra={
         "room": ctx.room.name,

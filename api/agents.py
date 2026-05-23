@@ -35,14 +35,16 @@ def create_agent(
         agent_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
         db.execute(
-            "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, voice_pool_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (agent_id, body.alias, voice["voice_id"], body.system_prompt, user["id"], body.voice_pool_id, now),
+            "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, voice_pool_id, model_config_id, tts_config_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (agent_id, body.alias, voice["voice_id"], body.system_prompt, user["id"], body.voice_pool_id, getattr(body, 'model_config_id', None), getattr(body, 'tts_config_id', None), now),
         )
         db.commit()
         return AgentOut(
             id=agent_id, alias=body.alias, voice_id=voice["voice_id"],
             voice_pool_id=body.voice_pool_id,
-            system_prompt=body.system_prompt, owner_id=user["id"], created_at=now,
+            system_prompt=body.system_prompt, owner_id=user["id"],
+            tts_config_id=getattr(body, 'tts_config_id', None),
+            created_at=now,
         )
     finally:
         db.close()
@@ -93,6 +95,7 @@ def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_curr
         new_alias = body.alias if body.alias is not None else row["alias"]
         new_prompt = body.system_prompt if body.system_prompt is not None else row["system_prompt"]
         new_model_config_id = body.model_config_id if body.model_config_id is not None else row["model_config_id"]
+        new_tts_config_id = body.tts_config_id if body.tts_config_id is not None else row["tts_config_id"]
         new_voice_pool_id = row["voice_pool_id"] if "voice_pool_id" in row.keys() else None
         new_voice_id = row["voice_id"]
 
@@ -106,8 +109,8 @@ def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_curr
             new_voice_id = voice_row["voice_id"]
 
         db.execute(
-            "UPDATE agents SET alias=?, system_prompt=?, model_config_id=?, voice_pool_id=?, voice_id=? WHERE id=?",
-            (new_alias, new_prompt, new_model_config_id, new_voice_pool_id, new_voice_id, agent_id),
+            "UPDATE agents SET alias=?, system_prompt=?, model_config_id=?, voice_pool_id=?, voice_id=?, tts_config_id=? WHERE id=?",
+            (new_alias, new_prompt, new_model_config_id, new_voice_pool_id, new_voice_id, new_tts_config_id, agent_id),
         )
         db.commit()
         return AgentOut(
@@ -115,6 +118,7 @@ def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_curr
             voice_pool_id=new_voice_pool_id,
             system_prompt=new_prompt, owner_id=row["owner_id"],
             source_agent_id=row["source_agent_id"] if "source_agent_id" in row.keys() else None, model_config_id=new_model_config_id,
+            tts_config_id=new_tts_config_id,
             created_at=row["created_at"],
         )
     finally:

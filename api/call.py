@@ -51,12 +51,27 @@ def get_call_token(body: TokenRequest, user: dict = Depends(get_current_user)):
                     "max_tokens": mc_row["max_tokens"],
                 }
 
+        # Fetch tts_config if agent has one
+        tts_config = None
+        if agent_row["tts_config_id"]:
+            tc_row = db.execute(
+                "SELECT * FROM tts_configs WHERE id = ?",
+                (agent_row["tts_config_id"],),
+            ).fetchone()
+            if tc_row:
+                tts_config = {
+                    "provider": tc_row["provider"],
+                    "model": tc_row["model"],
+                    "api_key": tc_row["api_key"],
+                }
+
         agent_config = json.dumps({
             "agent_id": agent_row["id"],
             "alias": agent_row["alias"],
             "system_prompt": agent_row["system_prompt"],
             "voice_id": agent_row["voice_id"],
             "model_config": model_config,
+            "tts_config": tts_config,
         })
 
         token = lk_api.AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET) \
