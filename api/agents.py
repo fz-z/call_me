@@ -25,12 +25,25 @@ def create_agent(
     """Create an agent by selecting a voice from the pool. No audio upload."""
     db = _sync_conn()
     try:
+        if not body.voice_pool_id or not body.voice_pool_id.strip():
+            raise HTTPException(status_code=400, detail="voice_pool_id is required")
+
         # Lookup voice from pool
         voice = db.execute(
             "SELECT voice_id FROM voices WHERE id = ?", (body.voice_pool_id,)
         ).fetchone()
         if not voice:
             raise HTTPException(status_code=404, detail="Voice not found in pool")
+
+        # Validate optional FKs if provided
+        if body.tts_config_id:
+            tts_exists = db.execute("SELECT id FROM tts_configs WHERE id = ?", (body.tts_config_id,)).fetchone()
+            if not tts_exists:
+                raise HTTPException(status_code=400, detail="tts_config_id not found")
+        if body.model_config_id:
+            mc_exists = db.execute("SELECT id FROM model_configs WHERE id = ?", (body.model_config_id,)).fetchone()
+            if not mc_exists:
+                raise HTTPException(status_code=400, detail="model_config_id not found")
 
         agent_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
