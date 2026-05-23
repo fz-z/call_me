@@ -25,10 +25,7 @@
       <form class="modal" @submit.prevent="submit" style="min-width:400px">
         <h3>{{ editId ? '编辑' : '新建' }} API Key</h3>
         <input v-model="form.name" placeholder="名称 (如 DashScope, DeepSeek)" required />
-        <input v-model="form.provider" placeholder="提供商 (如 qwen, deepseek, huoshan, openai)" list="provider-suggestions" required />
-        <datalist id="provider-suggestions">
-          <option value="qwen" /><option value="deepseek" /><option value="huoshan" /><option value="openai" />
-        </datalist>
+        <input v-model="form.provider" placeholder="提供商 (如 qwen, deepseek, huoshan, openai)" required />
         <input v-model="form.api_key" placeholder="API Key" type="password" required />
         <p v-if="error" class="error">{{ error }}</p>
         <div class="modal-actions">
@@ -80,14 +77,3 @@ async function del(k) {
 onMounted(load);
 </script>
 
-<style scoped>
-select {
-  width: 100%;
-  padding: 8px;
-  margin-bottom: 12px;
-  background: #0f0f1a;
-  border: 1px solid #333;
-  color: #e0e0e0;
-  border-radius: 4px;
-}
-</style>
