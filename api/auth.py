@@ -43,9 +43,15 @@ def require_admin(user: dict = Depends(get_current_user)) -> dict:
 
 @router.post("/register", response_model=AuthResponse)
 def register(body: UserRegister):
+    username = body.username.strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="Username cannot be empty")
+    if len(username) < 2:
+        raise HTTPException(status_code=400, detail="Username must be at least 2 characters")
+
     db = _sync_conn()
     try:
-        existing = db.execute("SELECT id FROM users WHERE username = ?", (body.username,)).fetchone()
+        existing = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
         if existing:
             raise HTTPException(status_code=400, detail="Username already taken")
 
@@ -53,12 +59,12 @@ def register(body: UserRegister):
         now = datetime.now(timezone.utc).isoformat()
         db.execute(
             "INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)",
-            (user_id, body.username, pwd_context.hash(body.password), "user", now),
+            (user_id, username, pwd_context.hash(body.password), "user", now),
         )
         db.commit()
 
-        token = create_token(user_id, body.username, "user")
-        return AuthResponse(token=token, user=UserOut(id=user_id, username=body.username, role="user", created_at=now))
+        token = create_token(user_id, username, "user")
+        return AuthResponse(token=token, user=UserOut(id=user_id, username=username, role="user", created_at=now))
     finally:
         db.close()
 
