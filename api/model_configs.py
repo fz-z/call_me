@@ -32,14 +32,23 @@ def create_config(body: ModelConfigCreate, admin: dict = Depends(require_admin))
 
         config_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
+        api_key_id = body.api_key_id
+        # If api_key_id is not provided, try to resolve by provider
+        if not api_key_id and body.api_key:
+            key_row = db.execute(
+                "SELECT id FROM api_keys WHERE provider = ? LIMIT 1", (body.provider,)
+            ).fetchone()
+            if key_row:
+                api_key_id = key_row["id"]
+
         db.execute(
-            "INSERT INTO model_configs (id, name, provider, model, api_key, temperature, max_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (config_id, body.name, body.provider, body.model, body.api_key, body.temperature, body.max_tokens, now),
+            "INSERT INTO model_configs (id, name, provider, model, api_key, api_key_id, temperature, max_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (config_id, body.name, body.provider, body.model, body.api_key or "", api_key_id, body.temperature, body.max_tokens, now),
         )
         db.commit()
         return ModelConfigOut(
             id=config_id, name=body.name, provider=body.provider, model=body.model,
-            api_key=body.api_key, temperature=body.temperature, max_tokens=body.max_tokens, created_at=now,
+            api_key=body.api_key, api_key_id=api_key_id, temperature=body.temperature, max_tokens=body.max_tokens, created_at=now,
         )
     finally:
         db.close()
@@ -53,14 +62,27 @@ def update_config(config_id: str, body: ModelConfigUpdate, admin: dict = Depends
         if not row:
             raise HTTPException(status_code=404, detail="Config not found")
 
+        # Resolve api_key_id: explicit value > existing value > lookup by provider
+        api_key_id = body.api_key_id
+        if api_key_id is None:
+            api_key_id = row["api_key_id"]
+        if not api_key_id and body.api_key:
+            provider = body.provider if body.provider is not None else row["provider"]
+            key_row = db.execute(
+                "SELECT id FROM api_keys WHERE provider = ? LIMIT 1", (provider,)
+            ).fetchone()
+            if key_row:
+                api_key_id = key_row["id"]
+
         db.execute(
-            """UPDATE model_configs SET name=?, provider=?, model=?, api_key=?,
+            """UPDATE model_configs SET name=?, provider=?, model=?, api_key=?, api_key_id=?,
                temperature=?, max_tokens=? WHERE id=?""",
             (
                 body.name if body.name is not None else row["name"],
                 body.provider if body.provider is not None else row["provider"],
                 body.model if body.model is not None else row["model"],
                 body.api_key if body.api_key is not None else row["api_key"],
+                api_key_id,
                 body.temperature if body.temperature is not None else row["temperature"],
                 body.max_tokens if body.max_tokens is not None else row["max_tokens"],
                 config_id,
