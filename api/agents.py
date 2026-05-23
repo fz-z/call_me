@@ -60,7 +60,9 @@ def list_agents(user: dict = Depends(get_current_user)):
     db = _sync_conn()
     try:
         if user["role"] == "admin":
-            rows = db.execute("SELECT * FROM agents ORDER BY created_at DESC").fetchall()
+            rows = db.execute(
+                "SELECT * FROM agents WHERE source_agent_id IS NULL ORDER BY created_at DESC"
+            ).fetchall()
         else:
             rows = db.execute(
                 "SELECT * FROM agents WHERE owner_id = ? ORDER BY created_at DESC",

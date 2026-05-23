@@ -43,6 +43,7 @@ class AgentOut(BaseModel):
     voice_id: str
     system_prompt: str
     owner_id: str
+    source_agent_id: Optional[str] = None
     created_at: str
 
 
