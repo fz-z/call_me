@@ -54,13 +54,56 @@ Flutter App (通话) ──── LiveKit Cloud ──── Agent Worker (STT+L
 
 ## 快速开始
 
-```bash
-cp .env.example .env    # 编辑填入真实 Key
-docker compose up -d    # 启动
+### 1. 配置
 
-# Web Admin: http://localhost:8000/admin/
-# API Docs:  http://localhost:8000/docs
+```bash
+cp .env.example .env
+# 编辑 .env，至少填入 DASHSCOPE_API_KEY、LIVEKIT_URL、LIVEKIT_API_KEY、LIVEKIT_API_SECRET
 ```
+
+### 2. 一键部署
+
+```bash
+docker compose up -d
+```
+
+两个容器：`api`（端口 8000）和 `agent`（LiveKit Worker）。确认运行正常：
+
+```bash
+curl http://localhost:8000/api/health  # → {"status":"ok"}
+```
+
+### 3. 创建 Agent
+
+打开 **http://localhost:8000/admin/** → 用管理员账号登录 → 点"+ 创建 Agent" → 上传一段音频 → 填写别名和人设 → 保存。
+
+或者直接在 `.env` 里配置种子 Agent（取消注释 `SEED_AGENT_*`），重启后自动创建。
+
+### 4. 打电话
+
+**方式 A：手机 App（推荐）**
+
+```bash
+cd app
+flutter pub get
+flutter run      # Chrome 浏览器 / 模拟器 / 真机
+```
+
+打开 App → 注册或登录 → 首页下拉选择 Agent → 点击"开始通话"。
+
+**方式 B：终端测试**
+
+```bash
+cd agent
+pip install -e .
+python agent.py console
+```
+
+直接在终端里语音对话，无需 App。
+
+### 5. 管理（Web Admin）
+
+http://localhost:8000/admin/ — 创建/编辑/删除 Agent、管理用户、授权回收。
 
 ## .env 关键配置
 
