@@ -93,7 +93,7 @@ async def entrypoint(ctx: JobContext):
         stt = inference.STT(model=stt_model, language=stt_language)
 
     # TTS — pass voice_id if available for cloned voice
-    tts_provider = os.getenv("TTS_PROVIDER", "qwen").strip().lower()
+    tts_provider = os.getenv("TTS_PROVIDER", "livekit").strip().lower()
     if tts_provider == "qwen":
         tts_model = os.getenv("QWEN_TTS_MODEL", "qwen3-tts-vc-realtime-2026-01-15")
         tts = QwenTTS(
@@ -104,7 +104,10 @@ async def entrypoint(ctx: JobContext):
         )
     else:
         from livekit.agents import inference
-        tts = inference.TTS(model=os.getenv("ELEVENLABS_TTS_MODEL", "elevenlabs/eleven_flash_v2_5"))
+        tts = inference.TTS(
+            model=os.getenv("TTS_MODEL", "cartesia/sonic-3"),
+            voice=os.getenv("TTS_VOICE", "694f17b5-0c44-42bd-9d88-f18e9a5e40a1"),
+        )
 
     logger.info("pipeline config", extra={
         "room": ctx.room.name,
