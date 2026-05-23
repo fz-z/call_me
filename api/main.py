@@ -11,6 +11,7 @@ from admin import router as admin_router
 from call import router as call_router
 from sip import router as sip_router
 from model_configs import router as model_configs_router
+from voices import router as voices_router
 
 app = FastAPI(title="call_me API")
 
@@ -29,6 +30,7 @@ app.include_router(admin_router)
 app.include_router(call_router)
 app.include_router(sip_router)
 app.include_router(model_configs_router)
+app.include_router(voices_router)
 
 
 @app.on_event("startup")
