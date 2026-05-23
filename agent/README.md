@@ -1,44 +1,38 @@
 # call_me Agent Worker
 
-LiveKit Agent Worker。运行语音 AI 管线（STT → LLM → TTS），注册到 LiveKit Cloud。
+LiveKit Agent Worker — STT → LLM → TTS 语音管线。
 
 ## 快速启动
 
 ```bash
 pip install -e .
 python agent.py download-files  # 首次
-python agent.py console         # 终端对话测试
+python agent.py console         # 终端测试
 python agent.py start           # 生产模式
 ```
 
 ## 管线配置
 
-所有组件通过 `.env` 切换：
+Worker 支持两级配置：
 
-| 变量 | 默认 | 说明 |
-|------|------|------|
-| `STT_PROVIDER` | `livekit` | `livekit`(Deepgram) 或 `qwen` |
-| `STT_MODEL` | `deepgram/nova-2` | |
-| `STT_LANGUAGE` | `zh-CN` | |
-| `LLM_PROVIDER` | `qwen` | `qwen` 或 `deepseek` |
-| `QWEN_MODEL` | `qwen3-max` | |
-| `TTS_PROVIDER` | `qwen` | `qwen` 或 `elevenlabs` |
-| `QWEN_TTS_MODEL` | `qwen3-tts-vc-realtime` | VC 流式 WebSocket |
-| `QWEN_TTS_VOICE` | `Cherry` | 默认音色 |
+1. **Agent 级**（优先）：Token 中的 `model_config` 和 `tts_config`，来自 Web Admin 配置池
+2. **全局默认**（回退）：`.env` 中的 `LLM_PROVIDER`、`QWEN_TTS_MODEL` 等
 
-## Agent 配置注入
-
-Worker 不访问数据库。通话时配置通过 LiveKit Token 的参与者属性传入：
+## 配置注入流程
 
 ```
-Flutter App → POST /api/call/token (agent_id)
-           → api 读 SQLite，生成 Token（attributes 含 agent_config）
-           → App 连 LiveKit Room
-           → LiveKit 调度 Agent Worker
-           → Worker 从 remote_participants 读 system_prompt + voice_id
-           → 配置 LLM + TTS → 对话
+Token → agent_config {system_prompt, voice_id, model_config?, tts_config?}
+  ├── model_config → LLM 动态配置（provider, model, api_key, temperature）
+  ├── tts_config   → TTS 动态配置（provider, model, api_key）
+  └── null         → 回退 .env
 ```
 
-## Turn Detection
+## .env 全局默认
 
-使用新版 `TurnHandlingOptions` API（`turn_detection` + `preemptive_generation` 已废弃）。
+| 变量 | 默认值 |
+|------|--------|
+| `STT_PROVIDER` | `livekit` |
+| `STT_MODEL` | `deepgram/nova-2` |
+| `LLM_PROVIDER` | `qwen` |
+| `TTS_PROVIDER` | `qwen` |
+| `QWEN_TTS_MODEL` | `qwen3-tts-flash-realtime` |
