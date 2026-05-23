@@ -100,6 +100,25 @@ call_me/
 
 > 完整配置见 `.env.example`
 
+## 开发命令
+
+```bash
+# API 测试
+cd api && python3 -m pytest tests/ -v
+
+# Vue 管理后台开发
+cd web-admin && npm run dev
+
+# Vue 管理后台构建
+cd web-admin && npm run build
+
+# Flutter App 测试
+cd app && flutter test
+
+# Flutter App 开发运行
+cd app && flutter run -d chrome
+```
+
 ## API 端点
 
 | 路径 | 方法 | 说明 |
