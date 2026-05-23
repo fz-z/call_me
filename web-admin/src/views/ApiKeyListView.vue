@@ -25,7 +25,10 @@
       <form class="modal" @submit.prevent="submit" style="min-width:400px">
         <h3>{{ editId ? '编辑' : '新建' }} API Key</h3>
         <input v-model="form.name" placeholder="名称 (如 DashScope, DeepSeek)" required />
-        <select v-model="form.provider" required><option value="qwen">qwen</option><option value="deepseek">deepseek</option><option value="">其他</option></select>
+        <input v-model="form.provider" placeholder="提供商 (如 qwen, deepseek, huoshan, openai)" list="provider-suggestions" required />
+        <datalist id="provider-suggestions">
+          <option value="qwen" /><option value="deepseek" /><option value="huoshan" /><option value="openai" />
+        </datalist>
         <input v-model="form.api_key" placeholder="API Key" type="password" required />
         <p v-if="error" class="error">{{ error }}</p>
         <div class="modal-actions">
