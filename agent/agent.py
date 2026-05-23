@@ -68,20 +68,47 @@ async def entrypoint(ctx: JobContext):
         system_prompt = config.get("system_prompt", "你是一位贴心的语音智能助手。")
         voice_id = config.get("voice_id")
 
-    # LLM
-    llm_provider = os.getenv("LLM_PROVIDER", "qwen").strip().lower()
-    if llm_provider == "qwen":
-        qwen_base_url = os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-        llm = openai.LLM(
-            model=os.getenv("QWEN_MODEL", "qwen3-max"),
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
-            base_url=qwen_base_url,
-            temperature=0.7,
-        )
-    elif llm_provider == "deepseek":
-        llm = openai.LLM.with_deepseek(model="deepseek-chat", temperature=0.7)
+    # LLM — use model_config from token if available, otherwise .env default
+    if config and config.get("model_config"):
+        mc = config["model_config"]
+        mc_provider = mc["provider"]
+        if mc_provider == "deepseek":
+            llm = openai.LLM.with_deepseek(
+                model=mc["model"],
+                api_key=mc["api_key"],
+                temperature=mc.get("temperature", 0.7),
+            )
+        elif mc_provider == "qwen":
+            llm = openai.LLM(
+                model=mc["model"],
+                api_key=mc["api_key"],
+                base_url=os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+                temperature=mc.get("temperature", 0.7),
+            )
+        else:
+            logger.warning(f"Unknown model_config provider: {mc_provider}, falling back to .env")
+            # fall through to .env defaults below
+            config = None  # trigger fallback
+        if config:  # model_config was successfully applied
+            llm_provider = mc_provider
     else:
-        raise ValueError(f"Unsupported LLM_PROVIDER: {llm_provider}")
+        config = None  # trigger fallback
+
+    if not config or not config.get("model_config"):
+        # Fallback to .env defaults
+        llm_provider = os.getenv("LLM_PROVIDER", "qwen").strip().lower()
+        if llm_provider == "qwen":
+            qwen_base_url = os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+            llm = openai.LLM(
+                model=os.getenv("QWEN_MODEL", "qwen3-max"),
+                api_key=os.getenv("DASHSCOPE_API_KEY"),
+                base_url=qwen_base_url,
+                temperature=0.7,
+            )
+        elif llm_provider == "deepseek":
+            llm = openai.LLM.with_deepseek(model="deepseek-chat", temperature=0.7)
+        else:
+            raise ValueError(f"Unsupported LLM_PROVIDER: {llm_provider}")
 
     # STT
     stt_provider = os.getenv("STT_PROVIDER", "livekit").strip().lower()
