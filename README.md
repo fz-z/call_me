@@ -33,10 +33,12 @@ Flutter App (通话) ──── LiveKit Cloud ──── Agent Worker (STT+L
 
 ```bash
 cp .env.example .env    # 编辑填入真实 Key
-docker compose up -d    # 启动
+docker compose up -d    # 启动服务端
 
 # Web Admin: http://localhost:8000/admin/
 # API Docs:  http://localhost:8000/docs
+
+cd app && flutter run -d chrome  # 启动 Flutter App
 ```
 
 ## 已实现功能
