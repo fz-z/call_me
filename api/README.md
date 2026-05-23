@@ -17,6 +17,13 @@ python3 -m pytest tests/ -v
 # 31 tests
 ```
 
+## 配置管理
+
+**首次启动**：`.env` 中的 API Key 和种子配置初始化到数据库。  
+**后续运行**：所有配置通过 Web Admin 修改，重启不覆盖。
+
+Token 生成时，若 Agent 未配置模型/TTS，自动嵌入数据库中第一个可用配置，确保 Worker 始终拿到有效配置。
+
 ## 配置池
 
 | 表 | 管理入口 | Agent 可选 |
@@ -35,7 +42,7 @@ python3 -m pytest tests/ -v
 | `/api/auth/login` | POST | 登录 |
 | `/api/agents` | POST | 创建 Agent（JSON：voice_pool_id + tts_config_id + model_config_id） |
 | `/api/agents` | GET | 我的 Agent |
-| `/api/agents/{id}` | GET/PATCH/DELETE | Agent CRUD |
+| `/api/agents/{id}` | GET/PATCH/DELETE | Agent CRUD（admin 可修改任意 agent） |
 | `/api/agents/{id}/grant` | POST/DELETE | 授权/回收 |
 | `/api/admin/root-agents` | GET | 根机器人 |
 | `/api/admin/agents` | GET | 所有 Agent |
@@ -48,7 +55,7 @@ python3 -m pytest tests/ -v
 | `/api/admin/voices` | CRUD | 声音库 |
 | `/api/admin/voices/{id}/tts-configs` | GET/POST/DELETE | 音色-TTS 关联 |
 | `/api/admin/voices?tts_config_id=X` | GET | 按 TTS 过滤音色 |
-| `/api/call/token` | POST | 通话 Token |
+| `/api/call/token` | POST | 通话 Token（始终嵌入有效 model_config + tts_config） |
 | `/api/health` | GET | 健康检查 |
 
 ## 数据模型
@@ -68,4 +75,5 @@ voice_tts_links (voice_id, tts_config_id)
 
 - 用户拥有自己的 Agent（创建 + 被授权副本）
 - Admin 授权 = 创建独立副本（含 voice_pool_id + tts_config_id + model_config_id）
+- Admin 可编辑任意用户的 Agent 人设和 Pipeline 配置
 - 回收 = 删除副本
