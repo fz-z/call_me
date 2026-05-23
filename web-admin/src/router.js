@@ -4,6 +4,7 @@ import AgentListView from './views/AgentListView.vue';
 import AgentDetailView from './views/AgentDetailView.vue';
 import UserListView from './views/UserListView.vue';
 import UserDetailView from './views/UserDetailView.vue';
+import ModelConfigListView from './views/ModelConfigListView.vue';
 
 const routes = [
   { path: '/login', component: LoginView },
@@ -12,6 +13,7 @@ const routes = [
   { path: '/agents/:id', component: AgentDetailView, props: true },
   { path: '/users', component: UserListView },
   { path: '/users/:username', component: UserDetailView, props: true },
+  { path: '/model-configs', component: ModelConfigListView },
 ];
 
 const router = createRouter({ history: createWebHashHistory(), routes });
