@@ -25,3 +25,21 @@ def list_all_agents(admin: dict = Depends(require_admin)):
         return [AgentOut(**dict(r)) for r in rows]
     finally:
         db.close()
+
+
+@router.get("/users/{username}/agents", response_model=list[AgentOut])
+def list_user_agents(username: str, admin: dict = Depends(require_admin)):
+    """View all agents owned by a specific user (admin only)."""
+    db = _sync_conn()
+    try:
+        user_row = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+        if not user_row:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="User not found")
+        rows = db.execute(
+            "SELECT * FROM agents WHERE owner_id = ? ORDER BY created_at DESC",
+            (user_row["id"],),
+        ).fetchall()
+        return [AgentOut(**dict(r)) for r in rows]
+    finally:
+        db.close()

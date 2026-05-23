@@ -20,14 +20,7 @@ def _user_can_access(db, agent_id: str, user_id: str, role: str) -> bool:
     if role == "admin":
         return True
     row = db.execute("SELECT owner_id FROM agents WHERE id = ?", (agent_id,)).fetchone()
-    if not row:
-        return False
-    if row["owner_id"] == user_id:
-        return True
-    perm = db.execute(
-        "SELECT 1 FROM permissions WHERE agent_id = ? AND user_id = ?", (agent_id, user_id)
-    ).fetchone()
-    return perm is not None
+    return row is not None and row["owner_id"] == user_id
 
 
 @router.post("/token", response_model=TokenResponse)

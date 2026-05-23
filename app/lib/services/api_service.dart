@@ -154,6 +154,17 @@ class ApiService {
     throw Exception('Failed to list users');
   }
 
+  Future<List<Map<String, dynamic>>> listUserAgents(String username) async {
+    final r = await http.get(
+      Uri.parse('$_baseUrl/api/admin/users/$username/agents'),
+      headers: _headers,
+    );
+    if (r.statusCode == 200) {
+      return (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
+    }
+    throw Exception('Failed to list user agents');
+  }
+
   Future<void> grantPermission(String agentId, String username) async {
     final r = await http.post(
       Uri.parse('$_baseUrl/api/agents/$agentId/grant'),

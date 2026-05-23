@@ -16,14 +16,7 @@ def _user_can_access(db, agent_id: str, user_id: str, role: str) -> bool:
     if role == "admin":
         return True
     row = db.execute("SELECT owner_id FROM agents WHERE id = ?", (agent_id,)).fetchone()
-    if not row:
-        return False
-    if row["owner_id"] == user_id:
-        return True
-    perm = db.execute(
-        "SELECT 1 FROM permissions WHERE agent_id = ? AND user_id = ?", (agent_id, user_id)
-    ).fetchone()
-    return perm is not None
+    return row is not None and row["owner_id"] == user_id
 
 
 @router.post("", response_model=AgentOut)
@@ -66,13 +59,13 @@ async def create_agent(
 def list_agents(user: dict = Depends(get_current_user)):
     db = _sync_conn()
     try:
-        rows = db.execute(
-            """SELECT DISTINCT a.* FROM agents a
-               LEFT JOIN permissions p ON a.id = p.agent_id AND p.user_id = ?
-               WHERE a.owner_id = ? OR p.user_id = ?
-               ORDER BY a.created_at DESC""",
-            (user["id"], user["id"], user["id"]),
-        ).fetchall()
+        if user["role"] == "admin":
+            rows = db.execute("SELECT * FROM agents ORDER BY created_at DESC").fetchall()
+        else:
+            rows = db.execute(
+                "SELECT * FROM agents WHERE owner_id = ? ORDER BY created_at DESC",
+                (user["id"],),
+            ).fetchall()
         return [AgentOut(**dict(r)) for r in rows]
     finally:
         db.close()
