@@ -18,7 +18,7 @@ from livekit.plugins import noise_cancellation, openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from qwen_asr_realtime_stt import QwenASRRealtimeSTT
-from simple_qwen_tts import SimpleQwenTTS
+from qwen_tts import QwenTTS
 
 load_dotenv(".env")
 logger = logging.getLogger("agent")
@@ -96,10 +96,11 @@ async def entrypoint(ctx: JobContext):
     tts_provider = os.getenv("TTS_PROVIDER", "livekit").strip().lower()
     if tts_provider == "qwen":
         tts_model = os.getenv("QWEN_TTS_MODEL", "qwen3-tts-vc-realtime-2026-01-15")
-        tts = SimpleQwenTTS(
+        tts = QwenTTS(
+            api_url=os.getenv("QWEN_TTS_API_URL", "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"),
             api_key=os.getenv("DASHSCOPE_API_KEY", ""),
             model=tts_model,
-            voice=voice_id or os.getenv("QWEN_TTS_VOICE", "Cherry"),
+            voice_id=voice_id,
         )
     else:
         from livekit.agents import inference
