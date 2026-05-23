@@ -13,6 +13,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "python-multipart>=0.0.12",
     "livekit-api>=1.0.0",
+    "dashscope>=1.14.0",
 ]
 
 [dependency-groups]
