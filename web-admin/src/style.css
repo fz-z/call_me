@@ -1,0 +1,35 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0f0f1a; color: #e0e0e0; }
+.layout { display: flex; min-height: 100vh; }
+.sidebar { width: 200px; background: #1a1a2e; padding: 20px; display: flex; flex-direction: column; }
+.sidebar .logo { font-size: 18px; margin-bottom: 24px; color: #4a90d9; }
+.sidebar nav a { display: block; padding: 10px 8px; color: #ccc; text-decoration: none; border-radius: 4px; margin-bottom: 4px; }
+.sidebar nav a:hover, .sidebar nav a.router-link-active { background: #16213e; color: #fff; }
+.sidebar-footer { margin-top: auto; display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #888; }
+.sidebar-footer button { background: none; border: 1px solid #666; color: #ccc; padding: 4px 12px; border-radius: 4px; cursor: pointer; }
+.content { flex: 1; padding: 24px; }
+.login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.login-form { background: #1a1a2e; padding: 32px; border-radius: 8px; width: 320px; }
+.login-form h1 { text-align: center; margin-bottom: 24px; color: #4a90d9; }
+.login-form input { width: 100%; padding: 10px; margin-bottom: 12px; background: #0f0f1a; border: 1px solid #333; border-radius: 4px; color: #e0e0e0; }
+.login-form button { width: 100%; padding: 10px; background: #4a90d9; border: none; border-radius: 4px; color: white; cursor: pointer; }
+.login-form button:disabled { opacity: 0.5; }
+.error { color: #e74c3c; font-size: 13px; margin-bottom: 8px; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; padding: 8px 12px; color: #888; font-size: 12px; border-bottom: 1px solid #333; }
+td { padding: 8px 12px; font-size: 13px; border-bottom: 1px solid #222; }
+.tag { display: inline-block; background: #2d2d2d; padding: 2px 8px; border-radius: 3px; margin-right: 4px; font-size: 12px; }
+.tag .revoke { margin-left: 4px; cursor: pointer; color: #e74c3c; }
+.btn { padding: 6px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
+.btn-primary { background: #4a90d9; color: white; }
+.btn-danger { background: none; border: 1px solid #e74c3c; color: #e74c3c; }
+.btn-ghost { background: none; border: 1px solid #666; color: #ccc; padding: 4px 12px; border-radius: 3px; font-size: 12px; cursor: pointer; }
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.modal { background: #1a1a2e; padding: 24px; border-radius: 8px; min-width: 360px; }
+.modal h3 { margin-bottom: 16px; }
+.modal input, .modal textarea { width: 100%; padding: 8px; margin-bottom: 12px; background: #0f0f1a; border: 1px solid #333; border-radius: 4px; color: #e0e0e0; }
+.modal textarea { min-height: 80px; resize: vertical; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.page-header h2 { font-size: 20px; }
+.back-link { color: #4a90d9; text-decoration: none; font-size: 13px; margin-bottom: 12px; display: inline-block; }
