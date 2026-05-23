@@ -117,6 +117,12 @@ PATCH /api/agents/{id}                    → {alias?, system_prompt?, voice_poo
 
 No changes needed. `voice_id` is still embedded in token as DashScope voice ID. The API resolves `voice_pool_id` → `voice_id` at token generation time.
 
+## Future Compatibility
+
+- `model_configs.provider` and `voices.type` are stored as strings, not enums. Adding new providers requires no schema change — only removing the validation whitelist and adding a Worker handler
+- Worker LLM path uses OpenAI-compatible API pattern, making it easy to plug in any new provider with compatible endpoint
+- TTS and STT remain `.env` global for now; future per-agent override follows the same pattern as model_configs
+
 ## Deployment
 
 - DB migration: voices table + seed built-ins
