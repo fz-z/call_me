@@ -255,6 +255,11 @@ async function saveEdit() {
   if (!editForm.name.trim()) return;
   editLoading.value = true; editError.value = '';
   try {
+    // Auto-add pending TTS config if selected
+    if (editForm._addTtsId) {
+      await api.post(`/admin/voices/${editForm.id}/tts-configs`, { tts_config_id: editForm._addTtsId });
+      editForm._addTtsId = '';
+    }
     await api.patch(`/admin/voices/${editForm.id}`, {
       name: editForm.name.trim(),
       audition_text: editForm.audition_text || null,
