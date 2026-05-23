@@ -35,12 +35,19 @@ def get_call_token(body: TokenRequest, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=403, detail="No permission to use this agent")
 
         room_name = f"call_{uuid.uuid4().hex[:12]}"
-        # Fetch model_config if agent has one
+        # Fetch model_config (use agent's or fallback to first available in DB)
         model_config = None
-        if agent_row["model_config_id"]:
+        mc_id = agent_row["model_config_id"]
+        if not mc_id:
+            default_mc = db.execute(
+                "SELECT id FROM model_configs ORDER BY created_at ASC LIMIT 1"
+            ).fetchone()
+            if default_mc:
+                mc_id = default_mc["id"]
+        if mc_id:
             mc_row = db.execute(
                 "SELECT mc.*, ak.api_key as resolved_key FROM model_configs mc LEFT JOIN api_keys ak ON mc.api_key_id = ak.id WHERE mc.id = ?",
-                (agent_row["model_config_id"],),
+                (mc_id,),
             ).fetchone()
             if mc_row:
                 model_config = {
@@ -51,12 +58,19 @@ def get_call_token(body: TokenRequest, user: dict = Depends(get_current_user)):
                     "max_tokens": mc_row["max_tokens"],
                 }
 
-        # Fetch tts_config if agent has one
+        # Fetch tts_config (use agent's or fallback to first available in DB)
         tts_config = None
-        if agent_row["tts_config_id"]:
+        tc_id = agent_row["tts_config_id"]
+        if not tc_id:
+            default_tc = db.execute(
+                "SELECT id FROM tts_configs ORDER BY created_at ASC LIMIT 1"
+            ).fetchone()
+            if default_tc:
+                tc_id = default_tc["id"]
+        if tc_id:
             tc_row = db.execute(
                 "SELECT tc.*, ak.api_key as resolved_key FROM tts_configs tc LEFT JOIN api_keys ak ON tc.api_key_id = ak.id WHERE tc.id = ?",
-                (agent_row["tts_config_id"],),
+                (tc_id,),
             ).fetchone()
             if tc_row:
                 tts_config = {
