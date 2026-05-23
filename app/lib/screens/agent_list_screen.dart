@@ -4,6 +4,7 @@ import '../services/api_service.dart';
 import '../models/agent.dart';
 import 'agent_create_screen.dart';
 import 'agent_detail_screen.dart';
+import 'admin_screen.dart';
 
 class AgentListScreen extends StatefulWidget {
   const AgentListScreen({super.key});
@@ -48,7 +49,16 @@ class _AgentListScreenState extends State<AgentListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Agents')),
+      appBar: AppBar(
+        title: const Text('Agents'),
+        actions: [
+          if (context.read<ApiService>().isAdmin)
+            IconButton(
+              icon: const Icon(Icons.admin_panel_settings),
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminScreen())),
+            ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
           final created = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => const AgentCreateScreen()));

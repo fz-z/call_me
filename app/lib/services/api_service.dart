@@ -7,12 +7,20 @@ import '../models/agent.dart';
 class ApiService {
   String? _baseUrl;
   String? _token;
+  User? _currentUser;
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     final defaultUrl = kIsWeb ? 'http://localhost:8000' : 'http://localhost:8000';
     _baseUrl = prefs.getString('server_url') ?? defaultUrl;
     _token = prefs.getString('token');
+    final role = prefs.getString('user_role');
+    final username = prefs.getString('user_username');
+    final userId = prefs.getString('user_id');
+    final createdAt = prefs.getString('user_created_at') ?? '';
+    if (role != null && username != null && userId != null) {
+      _currentUser = User(id: userId, username: username, role: role, createdAt: createdAt);
+    }
   }
 
   Map<String, String> get _headers => {
@@ -22,6 +30,17 @@ class ApiService {
 
   void setBaseUrl(String url) => _baseUrl = url;
   String? get token => _token;
+  User? get currentUser => _currentUser;
+  bool get isAdmin => _currentUser?.role == 'admin';
+
+  Future<void> _saveUser(User user) async {
+    _currentUser = user;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('user_role', user.role);
+    await prefs.setString('user_username', user.username);
+    await prefs.setString('user_id', user.id);
+    await prefs.setString('user_created_at', user.createdAt);
+  }
 
   // Auth
   Future<User> register(String username, String password) async {
@@ -33,7 +52,9 @@ class ApiService {
     final data = jsonDecode(r.body);
     if (r.statusCode == 200) {
       await _saveToken(data['token']);
-      return User.fromJson(data['user']);
+      final user = User.fromJson(data['user']);
+      await _saveUser(user);
+      return user;
     }
     throw Exception(data['detail'] ?? 'Register failed');
   }
@@ -47,7 +68,9 @@ class ApiService {
     final data = jsonDecode(r.body);
     if (r.statusCode == 200) {
       await _saveToken(data['token']);
-      return User.fromJson(data['user']);
+      final user = User.fromJson(data['user']);
+      await _saveUser(user);
+      return user;
     }
     throw Exception(data['detail'] ?? 'Login failed');
   }
@@ -115,12 +138,20 @@ class ApiService {
   }
 
   // Admin
-  Future<List<Map<String, dynamic>>> listAllVoiceAgents() async {
+  Future<List<Map<String, dynamic>>> listAllAgents() async {
     final r = await http.get(Uri.parse('$_baseUrl/api/admin/agents'), headers: _headers);
     if (r.statusCode == 200) {
       return (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
     }
     throw Exception('Failed to list all agents');
+  }
+
+  Future<List<Map<String, dynamic>>> listUsers() async {
+    final r = await http.get(Uri.parse('$_baseUrl/api/admin/users'), headers: _headers);
+    if (r.statusCode == 200) {
+      return (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
+    }
+    throw Exception('Failed to list users');
   }
 
   Future<void> grantPermission(String agentId, String username) async {
