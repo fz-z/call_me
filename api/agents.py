@@ -107,19 +107,30 @@ def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_curr
 
         new_alias = body.alias if body.alias is not None else row["alias"]
         new_prompt = body.system_prompt if body.system_prompt is not None else row["system_prompt"]
-        new_model_config_id = body.model_config_id if body.model_config_id is not None else row["model_config_id"]
-        new_tts_config_id = body.tts_config_id if body.tts_config_id is not None else row["tts_config_id"]
+        # model_config_id: None=no change, ""=clear, uuid=set
+        new_model_config_id = row["model_config_id"]
+        if body.model_config_id is not None:
+            new_model_config_id = body.model_config_id if body.model_config_id.strip() else None
+        # tts_config_id: None=no change, ""=clear, uuid=set
+        new_tts_config_id = row["tts_config_id"]
+        if body.tts_config_id is not None:
+            new_tts_config_id = body.tts_config_id if body.tts_config_id.strip() else None
         new_voice_pool_id = row["voice_pool_id"] if "voice_pool_id" in row.keys() else None
         new_voice_id = row["voice_id"]
 
         if body.voice_pool_id is not None:
-            voice_row = db.execute(
-                "SELECT voice_id FROM voices WHERE id = ?", (body.voice_pool_id,)
-            ).fetchone()
-            if not voice_row:
-                raise HTTPException(status_code=404, detail="Voice not found")
-            new_voice_pool_id = body.voice_pool_id
-            new_voice_id = voice_row["voice_id"]
+            if body.voice_pool_id.strip():
+                voice_row = db.execute(
+                    "SELECT voice_id FROM voices WHERE id = ?", (body.voice_pool_id,)
+                ).fetchone()
+                if not voice_row:
+                    raise HTTPException(status_code=404, detail="Voice not found")
+                new_voice_pool_id = body.voice_pool_id
+                new_voice_id = voice_row["voice_id"]
+            else:
+                # empty string = clear voice_pool_id, fall back to system prompt voice
+                new_voice_pool_id = None
+                new_voice_id = row["voice_id"]
 
         db.execute(
             "UPDATE agents SET alias=?, system_prompt=?, model_config_id=?, voice_pool_id=?, voice_id=?, tts_config_id=? WHERE id=?",
