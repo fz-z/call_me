@@ -1,6 +1,5 @@
-import io
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 from main import app
 
@@ -9,16 +8,25 @@ client = TestClient(app)
 from tests.test_auth import _auth_header, _admin_header
 
 
+def _get_voice_pool_id():
+    """Get a voice_pool_id from the seeded built-in voices."""
+    from database import _sync_conn
+    conn = _sync_conn()
+    try:
+        row = conn.execute("SELECT id FROM voices WHERE name = 'Cherry'").fetchone()
+        return row["id"]
+    finally:
+        conn.close()
+
+
 class TestPermissions:
-    @patch("agents.enroll_voice", new_callable=AsyncMock)
-    def test_grant_and_access(self, mock_enroll, clean_db):
-        mock_enroll.return_value = "voice_grant"
+    def test_grant_and_access(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
         owner_headers = _auth_header("owner", "pw")
 
         create_resp = client.post(
             "/api/agents", headers=owner_headers,
-            data={"alias": "Sharable", "system_prompt": "Share"},
-            files={"audio_file": ("test.wav", io.BytesIO(b"fake"), "audio/wav")},
+            json={"alias": "Sharable", "system_prompt": "Share", "voice_pool_id": voice_pool_id},
         )
         agent_id = create_resp.json()["id"]
 
@@ -32,34 +40,35 @@ class TestPermissions:
             json={"username": "receiver"},
         )
         assert resp.status_code == 200
-        assert resp.json()["agent_id"] == agent_id
+        assert resp.json()["id"] != agent_id  # it's a new copy
 
-        # Receiver can now access
+        # Receiver can now access their copy
         receiver_resp = client.post("/api/auth/login", json={"username": "receiver", "password": "pw"})
         receiver_token = receiver_resp.json()["token"]
         receiver_headers = {"Authorization": f"Bearer {receiver_token}"}
 
-        resp = client.get(f"/api/agents/{agent_id}", headers=receiver_headers)
+        # Receiver accesses their own copy, not the original
+        copy_id = resp.json()["id"]
+        resp = client.get(f"/api/agents/{copy_id}", headers=receiver_headers)
         assert resp.status_code == 200
 
-    @patch("agents.enroll_voice", new_callable=AsyncMock)
-    def test_revoke_access(self, mock_enroll, clean_db):
-        mock_enroll.return_value = "voice_revoke"
+    def test_revoke_access(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
         owner_headers = _auth_header("owner2", "pw")
 
         create_resp = client.post(
             "/api/agents", headers=owner_headers,
-            data={"alias": "Revocable", "system_prompt": "Revoke"},
-            files={"audio_file": ("test.wav", io.BytesIO(b"fake"), "audio/wav")},
+            json={"alias": "Revocable", "system_prompt": "Revoke", "voice_pool_id": voice_pool_id},
         )
         agent_id = create_resp.json()["id"]
 
         client.post("/api/auth/register", json={"username": "target", "password": "pw"})
-        client.post(
+        grant_resp = client.post(
             f"/api/agents/{agent_id}/grant",
             headers=_admin_header(),
             json={"username": "target"},
         )
+        copy_id = grant_resp.json()["id"]
 
         # Revoke
         resp = client.delete(
@@ -68,12 +77,12 @@ class TestPermissions:
         )
         assert resp.status_code == 204
 
-        # Target can no longer access
+        # Target can no longer access their copy
         target_resp = client.post("/api/auth/login", json={"username": "target", "password": "pw"})
         target_token = target_resp.json()["token"]
         target_headers = {"Authorization": f"Bearer {target_token}"}
 
-        resp = client.get(f"/api/agents/{agent_id}", headers=target_headers)
+        resp = client.get(f"/api/agents/{copy_id}", headers=target_headers)
         assert resp.status_code == 404
 
     def test_non_admin_cannot_grant(self, clean_db):
@@ -105,35 +114,35 @@ class TestPermissions:
 
 
 class TestCallToken:
-    @patch("call.lk_api.AccessToken")
-    @patch("agents.enroll_voice", new_callable=AsyncMock)
-    def test_get_token(self, mock_enroll, mock_access_token, clean_db):
-        mock_enroll.return_value = "voice_token"
-        # Setup the mock for AccessToken
-        mock_token_instance = MagicMock()
-        mock_token_instance.to_jwt.return_value = "fake_jwt_token"
-        mock_access_token.return_value.with_identity.return_value = mock_token_instance
-        mock_token_instance.with_name.return_value = mock_token_instance
-        mock_token_instance.with_attributes.return_value = mock_token_instance
-        mock_token_instance.with_grants.return_value = mock_token_instance
+    def test_get_token(self, clean_db):
+        from unittest.mock import patch
+        from database import _sync_conn
 
+        voice_pool_id = _get_voice_pool_id()
         headers = _auth_header("caller", "pw")
 
         create_resp = client.post(
             "/api/agents", headers=headers,
-            data={"alias": "Call Agent", "system_prompt": "Answer calls"},
-            files={"audio_file": ("test.wav", io.BytesIO(b"fake"), "audio/wav")},
+            json={"alias": "Call Agent", "system_prompt": "Answer calls", "voice_pool_id": voice_pool_id},
         )
         agent_id = create_resp.json()["id"]
 
-        resp = client.post(
-            "/api/call/token", headers=headers,
-            json={"agent_id": agent_id},
-        )
-        assert resp.status_code == 200, resp.text
-        data = resp.json()
-        assert "token" in data
-        assert data["room_url"].startswith("wss")
+        with patch("call.lk_api.AccessToken") as mock_access_token:
+            mock_token_instance = MagicMock()
+            mock_token_instance.to_jwt.return_value = "fake_jwt_token"
+            mock_access_token.return_value.with_identity.return_value = mock_token_instance
+            mock_token_instance.with_name.return_value = mock_token_instance
+            mock_token_instance.with_attributes.return_value = mock_token_instance
+            mock_token_instance.with_grants.return_value = mock_token_instance
+
+            resp = client.post(
+                "/api/call/token", headers=headers,
+                json={"agent_id": agent_id},
+            )
+            assert resp.status_code == 200, resp.text
+            data = resp.json()
+            assert "token" in data
+            assert data["room_url"].startswith("wss")
 
     def test_get_token_no_permission(self, clean_db):
         headers = _auth_header("noaccess", "pw")
