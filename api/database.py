@@ -63,6 +63,12 @@ def init_db():
             );
         """)
 
+        # Migration: add source_agent_id to distinguish root agents from copies
+        try:
+            conn.execute("ALTER TABLE agents ADD COLUMN source_agent_id TEXT REFERENCES agents(id)")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
         admin_username = os.environ.get("ADMIN_USERNAME", "admin")
         admin_password = os.environ.get("ADMIN_PASSWORD", "admin")
         existing = conn.execute(
