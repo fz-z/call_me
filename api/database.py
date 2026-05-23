@@ -106,24 +106,21 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
-        # Seed built-in voices
-        builtins = [
-            ("Cherry", "Cherry"),
-            ("Stella", "Stella"),
-            ("Luna", "Luna"),
-            ("Scott", "Scott"),
-            ("Kevin", "Kevin"),
-        ]
-        for name, vid in builtins:
-            existing = conn.execute(
-                "SELECT id FROM voices WHERE name = ?", (name,)
-            ).fetchone()
-            if not existing:
-                now = datetime.now(timezone.utc).isoformat()
-                conn.execute(
-                    "INSERT INTO voices (id, name, voice_id, type, created_at) VALUES (?, ?, ?, ?, ?)",
-                    (str(uuid.uuid4()), name, vid, "builtin", now),
-                )
+        # Seed built-in voices — only when table is empty AND user explicitly set SEED_BUILTIN_VOICES
+        voice_count = conn.execute("SELECT COUNT(*) FROM voices").fetchone()[0]
+        raw_voices = os.environ.get("SEED_BUILTIN_VOICES")
+        if voice_count == 0 and raw_voices:
+            builtins = [(v.strip(), v.strip()) for v in raw_voices.split(",") if v.strip()]
+            for name, vid in builtins:
+                existing = conn.execute(
+                    "SELECT id FROM voices WHERE name = ?", (name,)
+                ).fetchone()
+                if not existing:
+                    now = datetime.now(timezone.utc).isoformat()
+                    conn.execute(
+                        "INSERT INTO voices (id, name, voice_id, type, created_at) VALUES (?, ?, ?, ?, ?)",
+                        (str(uuid.uuid4()), name, vid, "builtin", now),
+                    )
 
         # Migration: tts_configs table
         conn.execute("""
@@ -146,31 +143,43 @@ def init_db():
             )
         """)
 
+        # Migration: audition_text on voices
+        try:
+            conn.execute("ALTER TABLE voices ADD COLUMN audition_text TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
         # Migration: add tts_config_id to agents
         try:
             conn.execute("ALTER TABLE agents ADD COLUMN tts_config_id TEXT REFERENCES tts_configs(id)")
         except sqlite3.OperationalError:
             pass
 
-        # Seed TTS configs
+        # Seed TTS configs — each seeds independently when .env has its model
         dashscope_key = os.environ.get("DASHSCOPE_API_KEY", "")
-        tts_seeds = [
-            ("通义通用TTS", "qwen", "qwen3-tts-flash-realtime"),
-            ("通义VC", "qwen", "qwen3-tts-vc-realtime-2026-01-15"),
-        ]
         tts_ids = {}
-        for name, provider, model in tts_seeds:
-            existing = conn.execute("SELECT id FROM tts_configs WHERE name = ?", (name,)).fetchone()
-            if not existing:
-                tid = str(uuid.uuid4())
-                now = datetime.now(timezone.utc).isoformat()
-                conn.execute(
-                    "INSERT INTO tts_configs (id, name, provider, model, api_key, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                    (tid, name, provider, model, dashscope_key, now),
-                )
-                tts_ids[name] = tid
-            else:
-                tts_ids[name] = existing["id"]
+        tts_count = conn.execute("SELECT COUNT(*) FROM tts_configs").fetchone()[0]
+        flash_model = os.environ.get("SEED_TTS_FLASH_MODEL")
+        vc_model = os.environ.get("SEED_TTS_VC_MODEL")
+        tts_seeds = []
+        if tts_count == 0:
+            if flash_model:
+                tts_seeds.append(("通义通用TTS", "qwen", flash_model))
+            if vc_model:
+                tts_seeds.append(("通义VC", "qwen", vc_model))
+        if tts_seeds:
+            for name, provider, model in tts_seeds:
+                existing = conn.execute("SELECT id FROM tts_configs WHERE name = ?", (name,)).fetchone()
+                if not existing:
+                    tid = str(uuid.uuid4())
+                    now = datetime.now(timezone.utc).isoformat()
+                    conn.execute(
+                        "INSERT INTO tts_configs (id, name, provider, model, api_key, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                        (tid, name, provider, model, dashscope_key, now),
+                    )
+                    tts_ids[name] = tid
+                else:
+                    tts_ids[name] = existing["id"]
 
         # Seed voice_tts_links: built-in voices → 通义通用TTS, cloned voices → 通义VC
         if tts_ids:
@@ -190,6 +199,19 @@ def init_db():
                         "INSERT OR IGNORE INTO voice_tts_links (voice_id, tts_config_id) VALUES (?, ?)",
                         (v["id"], vc_tts_id),
                     )
+
+        # Seed default model_config — only when table is empty AND user explicitly set DEFAULT_LLM_MODEL
+        mc_count = conn.execute("SELECT COUNT(*) FROM model_configs").fetchone()[0]
+        default_llm = os.environ.get("DEFAULT_LLM_MODEL")
+        if mc_count == 0 and default_llm:
+            mc_id = str(uuid.uuid4())
+            mc_now = datetime.now(timezone.utc).isoformat()
+            default_temp = float(os.environ.get("DEFAULT_LLM_TEMPERATURE", "0.7"))
+            default_max_tokens = int(os.environ.get("DEFAULT_MAX_TOKENS", "2048"))
+            conn.execute(
+                "INSERT INTO model_configs (id, name, provider, model, api_key, temperature, max_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (mc_id, "Qwen Plus", "qwen", default_llm, dashscope_key, default_temp, default_max_tokens, mc_now),
+            )
 
         admin_username = os.environ.get("ADMIN_USERNAME", "admin")
         admin_password = os.environ.get("ADMIN_PASSWORD", "admin")
@@ -242,27 +264,29 @@ def init_db():
             )
         """)
 
-        # Seed API keys from .env
+        # Seed API keys from .env — only when table is completely empty (first run)
         dashscope_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
         deepseek_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
-        key_seeds = []
-        if dashscope_key:
-            key_seeds.append(("DashScope", "qwen", dashscope_key))
-        if deepseek_key:
-            key_seeds.append(("DeepSeek", "deepseek", deepseek_key))
         api_key_ids = {}
-        for name, provider, api_key in key_seeds:
-            existing = conn.execute("SELECT id FROM api_keys WHERE name = ?", (name,)).fetchone()
-            if not existing:
-                kid = str(uuid.uuid4())
-                now = datetime.now(timezone.utc).isoformat()
-                conn.execute(
-                    "INSERT INTO api_keys (id, name, provider, api_key, created_at) VALUES (?, ?, ?, ?, ?)",
-                    (kid, name, provider, api_key, now),
-                )
-                api_key_ids[name] = kid
-            else:
-                api_key_ids[name] = existing["id"]
+        key_count = conn.execute("SELECT COUNT(*) FROM api_keys").fetchone()[0]
+        if key_count == 0:
+            key_seeds = []
+            if dashscope_key:
+                key_seeds.append(("DashScope", "qwen", dashscope_key))
+            if deepseek_key:
+                key_seeds.append(("DeepSeek", "deepseek", deepseek_key))
+            for name, provider, api_key in key_seeds:
+                existing = conn.execute("SELECT id FROM api_keys WHERE name = ?", (name,)).fetchone()
+                if not existing:
+                    kid = str(uuid.uuid4())
+                    now = datetime.now(timezone.utc).isoformat()
+                    conn.execute(
+                        "INSERT INTO api_keys (id, name, provider, api_key, created_at) VALUES (?, ?, ?, ?, ?)",
+                        (kid, name, provider, api_key, now),
+                    )
+                    api_key_ids[name] = kid
+                else:
+                    api_key_ids[name] = existing["id"]
 
         # Migration: add api_key_id to model_configs (replace api_key column)
         try:
