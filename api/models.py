@@ -30,18 +30,21 @@ class AuthResponse(BaseModel):
 class AgentCreate(BaseModel):
     alias: str
     system_prompt: str = ""
+    voice_pool_id: str
 
 
 class AgentUpdate(BaseModel):
     alias: Optional[str] = None
     system_prompt: Optional[str] = None
     model_config_id: Optional[str] = None
+    voice_pool_id: Optional[str] = None
 
 
 class AgentOut(BaseModel):
     id: str
     alias: str
     voice_id: str
+    voice_pool_id: Optional[str] = None
     system_prompt: str
     owner_id: str
     source_agent_id: Optional[str] = None
@@ -96,6 +99,18 @@ class ModelConfigOut(BaseModel):
     temperature: float
     max_tokens: int
     created_at: str
+
+
+class VoiceOut(BaseModel):
+    id: str
+    name: str
+    voice_id: str
+    type: str
+    created_at: str
+
+
+class VoiceCreate(BaseModel):
+    name: str
 
 
 class SipBindRequest(BaseModel):

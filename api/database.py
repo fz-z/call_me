@@ -89,6 +89,42 @@ def init_db():
         except sqlite3.OperationalError:
             pass  # column already exists
 
+        # Migration: voices table for voice pool
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS voices (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                voice_id TEXT NOT NULL,
+                type TEXT NOT NULL DEFAULT 'cloned',
+                created_at TEXT NOT NULL
+            )
+        """)
+
+        # Migration: add voice_pool_id to agents
+        try:
+            conn.execute("ALTER TABLE agents ADD COLUMN voice_pool_id TEXT REFERENCES voices(id)")
+        except sqlite3.OperationalError:
+            pass
+
+        # Seed built-in voices
+        builtins = [
+            ("Cherry", "Cherry"),
+            ("Stella", "Stella"),
+            ("Luna", "Luna"),
+            ("Scott", "Scott"),
+            ("Kevin", "Kevin"),
+        ]
+        for name, vid in builtins:
+            existing = conn.execute(
+                "SELECT id FROM voices WHERE name = ?", (name,)
+            ).fetchone()
+            if not existing:
+                now = datetime.now(timezone.utc).isoformat()
+                conn.execute(
+                    "INSERT INTO voices (id, name, voice_id, type, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (str(uuid.uuid4()), name, vid, "builtin", now),
+                )
+
         admin_username = os.environ.get("ADMIN_USERNAME", "admin")
         admin_password = os.environ.get("ADMIN_PASSWORD", "admin")
         existing = conn.execute(
