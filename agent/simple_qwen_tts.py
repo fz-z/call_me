@@ -29,7 +29,7 @@ class SimpleQwenTTS(TTS):
         num_channels: int = 1,
     ) -> None:
         super().__init__(
-            capabilities=TTSCapabilities(streaming=False),
+            capabilities=TTSCapabilities(streaming=True),
             sample_rate=sample_rate,
             num_channels=num_channels,
         )
@@ -79,7 +79,7 @@ class _SimpleQwenSynthesizeStream(SynthesizeStream):
             sample_rate=tts.sample_rate,
             num_channels=tts.num_channels,
             mime_type="audio/wav",
-            stream=False,
+            stream=True,
         )
         emitter.start_segment(segment_id=shortuuid())
 
