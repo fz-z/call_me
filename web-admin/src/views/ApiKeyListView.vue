@@ -44,7 +44,7 @@ import api from '../api.js';
 const keys = ref([]);
 const showForm = ref(false);
 const editId = ref(null);
-const form = reactive({ name: '', provider: 'qwen', api_key: '' });
+const form = reactive({ name: '', provider: '', api_key: '' });
 const loading = ref(false);
 const error = ref('');
 
@@ -56,7 +56,7 @@ async function load() {
 }
 
 function edit(k) { editId.value = k.id; form.name = k.name; form.provider = k.provider; form.api_key = k.api_key; showForm.value = true; }
-function closeForm() { showForm.value = false; editId.value = null; form.name = ''; form.provider = 'qwen'; form.api_key = ''; }
+function closeForm() { showForm.value = false; editId.value = null; form.name = ''; form.provider = ''; form.api_key = ''; }
 
 async function submit() {
   loading.value = true; error.value = '';
