@@ -18,7 +18,7 @@
           <td style="color:#888;font-size:12px">{{ (u.created_at || '').substring(0, 10) }}</td>
           <td>
             <button class="btn-ghost" @click="$router.push(`/users/${u.username}`)">详情</button>
-            <button v-if="u.role !== 'admin'" class="btn-ghost" style="color:#e74c3c;margin-left:4px" @click="del(u.username)">删除</button>
+            <button v-if="u.role !== 'admin'" class="btn-ghost" style="color:#e74c3c;margin-left:4px" @click="del(u)">删除</button>
           </td>
         </tr>
       </tbody>
@@ -51,9 +51,11 @@ async function revoke(agent, username) {
   await load();
 }
 
-async function del(username) {
-  if (!confirm(`Delete user "${username}" and all their agents?`)) return;
-  await api.delete(`/admin/users/${username}`);
+async function del(user) {
+  const name = user.username;
+  if (!name || user.role === 'admin') return;
+  if (!confirm(`Delete user "${name}" and all their agents?`)) return;
+  await api.delete(`/admin/users/${encodeURIComponent(name)}`);
   await load();
 }
 
