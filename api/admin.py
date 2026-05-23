@@ -45,6 +45,26 @@ def list_user_agents(username: str, admin: dict = Depends(require_admin)):
         db.close()
 
 
+@router.delete("/users/{username}", status_code=204)
+def delete_user(username: str, admin: dict = Depends(require_admin)):
+    """Delete a user and all their agents. Cannot delete self."""
+    if username == admin["username"]:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+
+    db = _sync_conn()
+    try:
+        user_row = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+        if not user_row:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        db.execute("DELETE FROM agents WHERE owner_id = ?", (user_row["id"],))
+        db.execute("DELETE FROM users WHERE id = ?", (user_row["id"],))
+        db.commit()
+    finally:
+        db.close()
+    return None
+
+
 @router.get("/root-agents", response_model=list[AgentOut])
 def list_root_agents(admin: dict = Depends(require_admin)):
     """List all root agents (source_agent_id IS NULL)."""
