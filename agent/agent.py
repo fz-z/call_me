@@ -25,6 +25,28 @@ load_dotenv(".env")
 logger = logging.getLogger("agent")
 
 
+def _sanitize_agent_config_for_log(agent_config_str: str | None) -> str | None:
+    if not agent_config_str:
+        return agent_config_str
+
+    try:
+        config = json.loads(agent_config_str)
+    except json.JSONDecodeError:
+        return "<invalid agent_config>"
+
+    def redact(value):
+        if isinstance(value, dict):
+            return {
+                key: "***" if key.lower() in {"api_key", "apiKey".lower()} else redact(val)
+                for key, val in value.items()
+            }
+        if isinstance(value, list):
+            return [redact(item) for item in value]
+        return value
+
+    return json.dumps(redact(config), ensure_ascii=False)
+
+
 class CallMeAgent(Agent):
     def __init__(self, system_prompt: str) -> None:
         super().__init__(instructions=system_prompt)
@@ -59,56 +81,50 @@ async def entrypoint(ctx: JobContext):
             break
         await asyncio.sleep(0.5)
 
+    config = {}
     if not agent_config_str:
         logger.warning("No agent_config in participant attributes, using defaults")
-        system_prompt = "你是一位贴心的语音智能助手。"
+        system_prompt = os.getenv("DEFAULT_SYSTEM_PROMPT", "你是一位贴心的语音智能助手。")
         voice_id = None
     else:
         config = json.loads(agent_config_str)
-        system_prompt = config.get("system_prompt", "你是一位贴心的语音智能助手。")
+        system_prompt = config.get("system_prompt", os.getenv("DEFAULT_SYSTEM_PROMPT", "你是一位贴心的语音智能助手。"))
         voice_id = config.get("voice_id")
 
     # LLM — use model_config from token if available, otherwise .env default
-    if config and config.get("model_config"):
+    default_llm_temp = float(os.getenv("DEFAULT_LLM_TEMPERATURE", "0.7"))
+    llm_configured = False
+    if config.get("model_config"):
         mc = config["model_config"]
         mc_provider = mc["provider"]
         if mc_provider == "deepseek":
             llm = openai.LLM.with_deepseek(
                 model=mc["model"],
                 api_key=mc["api_key"],
-                temperature=mc.get("temperature", 0.7),
+                temperature=mc.get("temperature", default_llm_temp),
             )
+            llm_configured = True
         elif mc_provider == "qwen":
             llm = openai.LLM(
                 model=mc["model"],
                 api_key=mc["api_key"],
                 base_url=os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
-                temperature=mc.get("temperature", 0.7),
+                temperature=mc.get("temperature", default_llm_temp),
             )
+            llm_configured = True
         else:
             logger.warning(f"Unknown model_config provider: {mc_provider}, falling back to .env")
-            # fall through to .env defaults below
-            config = None  # trigger fallback
-        if config:  # model_config was successfully applied
-            llm_provider = mc_provider
-    else:
-        config = None  # trigger fallback
 
-    if not config or not config.get("model_config"):
-        # Fallback to .env defaults
-        llm_provider = os.getenv("LLM_PROVIDER", "qwen").strip().lower()
-        if llm_provider == "qwen":
-            qwen_base_url = os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-            llm = openai.LLM(
-                model=os.getenv("QWEN_MODEL", "qwen3-max"),
-                api_key=os.getenv("DASHSCOPE_API_KEY"),
-                base_url=qwen_base_url,
-                temperature=0.7,
-            )
-        elif llm_provider == "deepseek":
-            llm = openai.LLM.with_deepseek(model="deepseek-chat", temperature=0.7)
-        else:
-            raise ValueError(f"Unsupported LLM_PROVIDER: {llm_provider}")
+    if not llm_configured:
+        llm = openai.LLM(
+            model="qwen-plus",
+            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            base_url=os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+            temperature=default_llm_temp,
+        )
+        llm_provider = "qwen"
+    else:
+        llm_provider = mc_provider
 
     # STT
     stt_provider = os.getenv("STT_PROVIDER", "livekit").strip().lower()
@@ -121,7 +137,8 @@ async def entrypoint(ctx: JobContext):
         stt = inference.STT(model=stt_model, language=stt_language)
 
     # TTS — use tts_config from token if available, otherwise .env default
-    if config and config.get("tts_config"):
+    tts_configured = False
+    if config.get("tts_config"):
         tc = config["tts_config"]
         tc_provider = tc["provider"]
         if tc_provider == "qwen":
@@ -131,37 +148,28 @@ async def entrypoint(ctx: JobContext):
                 model=tc["model"],
                 voice_id=voice_id,
             )
-            tts_provider = "qwen"
+            tts_configured = True
         else:
             logger.warning(f"Unknown tts_config provider: {tc_provider}, falling back to .env")
-            config = None
-    else:
-        config = None
 
-    if not config or not config.get("tts_config"):
-        # Fallback to .env defaults
-        tts_provider = os.getenv("TTS_PROVIDER", "livekit").strip().lower()
-        if tts_provider == "qwen":
-            tts_model = os.getenv("QWEN_TTS_MODEL", "qwen3-tts-vc-realtime-2026-01-15")
-            tts = QwenTTS(
-                api_url=os.getenv("QWEN_TTS_API_URL", "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"),
-                api_key=os.getenv("DASHSCOPE_API_KEY", ""),
-                model=tts_model,
-                voice_id=voice_id,
-            )
-        else:
-            from livekit.agents import inference
-            tts = inference.TTS(
-                model=os.getenv("TTS_MODEL", "cartesia/sonic-3"),
-                voice=os.getenv("TTS_VOICE", "694f17b5-0c44-42bd-9d88-f18e9a5e40a1"),
-            )
+    if not tts_configured:
+        tts = QwenTTS(
+            api_url=os.getenv("QWEN_TTS_API_URL", "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"),
+            api_key=os.getenv("DASHSCOPE_API_KEY", ""),
+            model="qwen3-tts-flash-realtime",
+            voice_id=voice_id,
+        )
+        tts_provider = "qwen"
+    else:
+        tts_provider = tc_provider
 
     logger.info("pipeline config", extra={
         "room": ctx.room.name,
-        "agent_config": agent_config_str,
+        "agent_config": _sanitize_agent_config_for_log(agent_config_str),
         "llm_provider": llm_provider,
         "tts_provider": tts_provider,
     })
+    logger.info(f"TTS created: model={tts.model}, voice_id={voice_id}, is_realtime={tts._is_realtime_model()}")
 
     session = AgentSession(
         stt=stt,
@@ -184,6 +192,33 @@ async def entrypoint(ctx: JobContext):
             ),
         ),
     )
+
+    # Agent speaks first: generate a short greeting via LLM
+    from livekit.agents.llm import ChatContext, ChatMessage
+
+    try:
+        greeting_prompt = os.getenv(
+            "INITIAL_GREETING_PROMPT",
+            "通话刚刚接通。请根据你的人设，用中文向对方简短打招呼"
+            "（包含自我介绍），询问对方需要什么。20字以内，纯文本不要动作描写。"
+        )
+        greeting_ctx = ChatContext()
+        greeting_ctx.add_message(role="system", content=system_prompt)
+        greeting_ctx.add_message(role="user", content=greeting_prompt)
+        greeting_stream = llm.chat(chat_ctx=greeting_ctx)
+        greeting_text = ""
+        async for chunk in greeting_stream:
+            if chunk.delta and chunk.delta.content:
+                greeting_text += chunk.delta.content
+        greeting_text = greeting_text.strip()
+        if greeting_text:
+            logger.info(f"Initial greeting: {greeting_text}")
+            await session.say(greeting_text, allow_interruptions=False)
+        else:
+            await session.say("你好，请问有什么可以帮助你的？", allow_interruptions=False)
+    except Exception as e:
+        logger.warning(f"Failed to generate initial greeting: {e}")
+        await session.say("你好，请问有什么可以帮助你的？", allow_interruptions=False)
 
 
 if __name__ == "__main__":

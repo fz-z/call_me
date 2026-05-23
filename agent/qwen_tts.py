@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import os
 from typing import Any
 
@@ -16,6 +17,25 @@ from livekit.agents.tts import (
 )
 from livekit.agents.types import APIConnectOptions, DEFAULT_API_CONNECT_OPTIONS
 from livekit.agents.utils import shortuuid
+
+logger = logging.getLogger("qwen_tts")
+
+
+async def _iter_flushed_text_segments(input_ch, flush_sentinel_type):
+    buf = ""
+    async for item in input_ch:
+        if isinstance(item, flush_sentinel_type):
+            text = buf.strip()
+            if text:
+                yield text
+            buf = ""
+            continue
+        if item:
+            buf += item
+
+    text = buf.strip()
+    if text:
+        yield text
 
 
 class QwenTTS(TTS):
@@ -34,7 +54,7 @@ class QwenTTS(TTS):
         *,
         api_url: str,
         api_key: str,
-        model: str = "qwen3-tts-flash",
+        model: str = "qwen3-tts-flash-realtime",
         voice: str = "Cherry",
         voice_id: str | None = None,
         # 常见：wav / mp3 / pcm
@@ -75,10 +95,10 @@ class QwenTTS(TTS):
             "multimodal-generation/generation"
         )
 
-        model = os.environ.get("QWEN_TTS_MODEL", "qwen-tts").strip()
+        model = "qwen3-tts-flash-realtime"
         # 复刻音色（voice_id）优先：如果设置了 QWEN_TTS_VOICE_ID，则会覆盖 QWEN_TTS_VOICE
         voice_id = os.environ.get("QWEN_TTS_VOICE_ID", "").strip() or None
-        voice = os.environ.get("QWEN_TTS_VOICE", "Cherry").strip()
+        voice = "Cherry"
         audio_format = os.environ.get("QWEN_TTS_FORMAT", "wav").strip()
 
         sample_rate = int(os.environ.get("QWEN_TTS_SAMPLE_RATE", "24000"))
@@ -198,29 +218,26 @@ class _QwenSynthesizeStream(SynthesizeStream):
         )
         output_emitter.start_segment(segment_id=shortuuid())
 
-        buf = ""
-        async for item in self._input_ch:
-            if isinstance(item, self._FlushSentinel):
-                continue
-            if not item:
-                continue
+        async for text in _iter_flushed_text_segments(
+            self._input_ch,
+            self._FlushSentinel,
+        ):
             self._mark_started()
-            buf += item
-
-        text = buf.strip()
-        if not text:
-            return
-
-        if tts._is_realtime_model():
-            async for chunk in _call_qwen_tts_realtime_stream(tts=tts, text=text):
-                if chunk:
+            logger.info(f"TTS synthesizing text: {text[:80]}...")
+            if tts._is_realtime_model():
+                chunk_count = 0
+                async for chunk in _call_qwen_tts_realtime_stream(tts=tts, text=text):
+                    if chunk:
+                        chunk_count += 1
+                        output_emitter.push(chunk)
+                logger.info(f"TTS realtime done: {chunk_count} audio chunks pushed, text_len={len(text)}")
+                output_emitter.flush()
+            else:
+                audio = await _call_qwen_tts(tts=tts, text=text)
+                logger.info(f"TTS HTTP done: {len(audio)} bytes audio, text_len={len(text)}")
+                for chunk in _iter_chunks(audio, 16 * 1024):
                     output_emitter.push(chunk)
-            output_emitter.flush()
-        else:
-            audio = await _call_qwen_tts(tts=tts, text=text)
-            for chunk in _iter_chunks(audio, 16 * 1024):
-                output_emitter.push(chunk)
-            output_emitter.flush()
+                output_emitter.flush()
 
 
 async def _call_qwen_tts(*, tts: QwenTTS, text: str) -> bytes:
@@ -296,6 +313,8 @@ async def _call_qwen_tts_realtime_stream(*, tts: QwenTTS, text: str):
     workspace_id = os.environ.get("DASHSCOPE_WORKSPACE", "").strip() or None
     voice = tts._voice_id or tts._voice
 
+    logger.info(f"TTS realtime stream starting: model={tts._model}, voice={voice}")
+
     dashscope.api_key = tts._api_key
 
     loop = asyncio.get_running_loop()
@@ -335,10 +354,17 @@ async def _call_qwen_tts_realtime_stream(*, tts: QwenTTS, text: str):
             ):
                 loop.call_soon_threadsafe(q.put_nowait, None)
             elif ev_type in ("error", "session.error", "response.error"):
+                logger.error(f"TTS realtime error event: {json.dumps(response, ensure_ascii=False)[:500]}")
                 loop.call_soon_threadsafe(q.put_nowait, None)
+            else:
+                # Log full event content for content_part.done and output_item.done to inspect audio delivery
+                if ev_type in ("response.content_part.done", "response.output_item.done"):
+                    logger.info(f"TTS realtime event [{ev_type}]: {json.dumps(response, ensure_ascii=False)[:800]}")
+                else:
+                    logger.info(f"TTS realtime event: {ev_type}")
 
         def on_close(self, close_status_code, close_msg) -> None:  # type: ignore[override]
-            # websocket 异常关闭时，确保退出等待，避免 LiveKit 侧卡住
+            logger.info(f"TTS realtime WS closed: code={close_status_code}, msg={close_msg}")
             loop.call_soon_threadsafe(q.put_nowait, None)
 
     cb = _CB()

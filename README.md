@@ -17,40 +17,17 @@ Flutter App (通话) ──── LiveKit Cloud ──── Agent Worker (STT+L
 - **api**：FastAPI 后端、SQLite 持久化、静态文件 serve
 - **agent**：LiveKit Agent Worker，STT→LLM→TTS 语音管线
 
-## 已实现功能
+## 配置管理
 
-### 通话
-- 实时语音通话（WebRTC via LiveKit Cloud）
-- 多 Agent 选择（不同声音 + 不同人设）
-- 流式 TTS（DashScope WebSocket，低延迟）
+**首次启动**：`.env` 中的 API Key 和配置初始化到数据库配置池。  
+**后续运行**：所有配置通过 Web Admin 页面管理，重启不会覆盖。  
+**Agent 回退**：未配置模型/TTS 的 Agent 自动使用数据库中第一个可用配置。
 
-### Agent 管理
-- **4 步创建向导**：TTS 模型 → 音色（级联过滤） → LLM 模型 → 人设
-- **独立副本**：授权 = 创建副本，每人可自定义人设，互不影响
-- Agent 详情页展示完整 Pipeline（LLM / TTS / STT）
-
-### 配置池（三个独立池）
-| 池 | 表 | Agent 可独立选择 |
-|----|-----|-----------------|
-| API Keys | api_keys | （底层引用） |
-| LLM 模型 | model_configs | ✅ |
-| TTS 模型 | tts_configs | ✅ |
-| 声音 | voices + voice_tts_links | ✅ |
-
-### 用户管理
-- 用户列表 + 每人拥有的 Agent
-- 授权/回收（机器人页 + 详情页 + 用户页）
-- 删除用户（级联删除 Agent）
-
-### Flutter App（通话端）
-- 登录/注册 → 选 Agent → 一键通话
-- 编辑自己 Agent 的人设
-
-### 部署
-- Docker Compose 一键部署（2 个容器）
-- Web Admin 和 API 同域名
-- `.env` 驱动全局默认配置
-- 31 个单元测试
+```
+.env (首次) → 数据库配置池 ──→ Agent Token ──→ Agent Worker
+     ↑                    ↑              ↑
+   仅首次种子         Web Admin 管理   始终嵌入有效配置
+```
 
 ## 快速开始
 
@@ -61,6 +38,39 @@ docker compose up -d    # 启动
 # Web Admin: http://localhost:8000/admin/
 # API Docs:  http://localhost:8000/docs
 ```
+
+## 已实现功能
+
+### 通话
+- 实时语音通话（WebRTC via LiveKit Cloud）
+- 接通后 Agent 主动打招呼（LLM 生成开场白）
+- 多 Agent 选择（不同声音 + 不同人设）
+- 流式 TTS（DashScope WebSocket，低延迟）
+
+### Agent 管理
+- **4 步创建向导**：TTS 模型 → 音色（级联过滤） → LLM 模型 → 人设
+- **独立副本**：授权 = 创建副本，每人可自定义人设，互不影响
+- **Pipeline 编辑**：Agent 详情页可直接修改音色、LLM 模型、TTS 模型
+- 管理员可编辑任意用户的 Agent 人设
+
+### 配置池（四个独立池）
+| 池 | 表 | 说明 |
+|----|-----|------|
+| API Keys | api_keys | 底层 API Key 引用 |
+| LLM 模型 | model_configs | Agent 可选，回退到数据库默认 |
+| TTS 模型 | tts_configs | Agent 可选，回退到数据库默认 |
+| 声音 | voices + voice_tts_links | 级联过滤 |
+
+### 用户管理
+- 用户列表 + 每人拥有的 Agent
+- 授权/回收（Agent 页 + 详情页 + 用户页）
+- 删除用户（级联删除 Agent）
+
+### 部署
+- Docker Compose 一键部署（2 个容器）
+- API 和 Web Admin 同域名同端口
+- `.env.example` 驱动首次种子配置
+- 31 个单元测试
 
 ## 项目结构
 
@@ -79,15 +89,14 @@ call_me/
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `DASHSCOPE_API_KEY` | 阿里云 DashScope | - |
+| `DEEPSEEK_API_KEY` | DeepSeek API Key（可选） | - |
 | `LIVEKIT_URL` | LiveKit 服务器 | - |
 | `LIVEKIT_API_KEY` | LiveKit API Key | - |
 | `LIVEKIT_API_SECRET` | LiveKit API Secret | - |
-| `STT_PROVIDER` / `STT_MODEL` | STT 配置 | `livekit` / `deepgram/nova-2` |
-| `LLM_PROVIDER` | LLM 默认提供商 | `qwen` |
-| `TTS_PROVIDER` | TTS 默认提供商 | `qwen` |
-| `QWEN_TTS_MODEL` | TTS 默认模型 | `qwen3-tts-flash-realtime` |
+| `STT_PROVIDER` / `STT_MODEL` | STT 全局配置 | `livekit` / `deepgram/nova-2` |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | 管理员 | `admin` / `admin` |
-| `SEED_AGENT_*` | 种子 Agent | 可选 |
+| `DEFAULT_LLM_MODEL` | 首次启动种子 LLM 模型 | `qwen-plus` |
+| `SEED_BUILTIN_VOICES` | 内置音色列表 | `Cherry,Stella,Luna,Scott,Kevin` |
 
 > 完整配置见 `.env.example`
 
