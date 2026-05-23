@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cp /Users/zhangfuzhen/Projects/call_me/.worktrees/web-admin/api/database.py /Users/zhangfuzhen/Projects/call_me/api/database.py)",
+      "Bash(cp /Users/zhangfuzhen/Projects/call_me/.worktrees/web-admin/api/models.py /Users/zhangfuzhen/Projects/call_me/api/models.py)",
+      "Bash(cp /Users/zhangfuzhen/Projects/call_me/.worktrees/web-admin/api/admin.py /Users/zhangfuzhen/Projects/call_me/api/admin.py)",
+      "Bash(cp /Users/zhangfuzhen/Projects/call_me/.worktrees/web-admin/api/permissions.py /Users/zhangfuzhen/Projects/call_me/api/permissions.py)",
+      "Bash(cp /Users/zhangfuzhen/Projects/call_me/.worktrees/web-admin/api/agents.py /Users/zhangfuzhen/Projects/call_me/api/agents.py)",
+      "Bash(docker compose *)",
+      "Bash(npm create *)",
+      "Bash(npm install *)",
+      "Bash(npx vite *)",
+      "Bash(git *)",
+      "Bash(curl -s http://localhost:8000/api/health)",
+      "Bash(curl -s -o /dev/null -w \"Admin page HTTP: %{http_code}\\\\n\" http://localhost:8000/admin)",
+      "Bash(curl -s -o /dev/null -w \"Admin page HTTP: %{http_code}\\\\n\" http://localhost:8000/admin/)",
+      "Bash(curl -s http://localhost:8000/admin/)"
+    ]
+  }
+}

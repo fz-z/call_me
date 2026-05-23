@@ -137,51 +137,6 @@ class ApiService {
     throw Exception('Failed to get call token');
   }
 
-  // Admin
-  Future<List<Map<String, dynamic>>> listAllAgents() async {
-    final r = await http.get(Uri.parse('$_baseUrl/api/admin/agents'), headers: _headers);
-    if (r.statusCode == 200) {
-      return (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
-    }
-    throw Exception('Failed to list all agents');
-  }
-
-  Future<List<Map<String, dynamic>>> listUsers() async {
-    final r = await http.get(Uri.parse('$_baseUrl/api/admin/users'), headers: _headers);
-    if (r.statusCode == 200) {
-      return (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
-    }
-    throw Exception('Failed to list users');
-  }
-
-  Future<List<Map<String, dynamic>>> listUserAgents(String username) async {
-    final r = await http.get(
-      Uri.parse('$_baseUrl/api/admin/users/$username/agents'),
-      headers: _headers,
-    );
-    if (r.statusCode == 200) {
-      return (jsonDecode(r.body) as List).cast<Map<String, dynamic>>();
-    }
-    throw Exception('Failed to list user agents');
-  }
-
-  Future<void> grantPermission(String agentId, String username) async {
-    final r = await http.post(
-      Uri.parse('$_baseUrl/api/agents/$agentId/grant'),
-      headers: _headers,
-      body: jsonEncode({'username': username}),
-    );
-    if (r.statusCode != 200) throw Exception('Failed to grant permission');
-  }
-
-  Future<void> revokePermission(String agentId, String username) async {
-    final r = await http.delete(
-      Uri.parse('$_baseUrl/api/agents/$agentId/grant/$username'),
-      headers: _headers,
-    );
-    if (r.statusCode != 204) throw Exception('Failed to revoke permission');
-  }
-
   // Settings
   Future<void> logout() async {
     _token = null;
