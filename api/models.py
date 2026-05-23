@@ -38,6 +38,7 @@ class AgentUpdate(BaseModel):
     system_prompt: Optional[str] = None
     model_config_id: Optional[str] = None
     voice_pool_id: Optional[str] = None
+    tts_config_id: Optional[str] = None
 
 
 class AgentOut(BaseModel):
@@ -49,6 +50,7 @@ class AgentOut(BaseModel):
     owner_id: str
     source_agent_id: Optional[str] = None
     model_config_id: Optional[str] = None
+    tts_config_id: Optional[str] = None
     created_at: str
 
 
@@ -99,6 +101,33 @@ class ModelConfigOut(BaseModel):
     temperature: float
     max_tokens: int
     created_at: str
+
+
+class TtsConfigCreate(BaseModel):
+    name: str
+    provider: str
+    model: str
+    api_key: str
+
+
+class TtsConfigUpdate(BaseModel):
+    name: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+
+
+class TtsConfigOut(BaseModel):
+    id: str
+    name: str
+    provider: str
+    model: str
+    api_key: str
+    created_at: str
+
+
+class VoiceTtsLinkRequest(BaseModel):
+    tts_config_id: str
 
 
 class VoiceOut(BaseModel):

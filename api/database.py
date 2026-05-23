@@ -125,6 +125,72 @@ def init_db():
                     (str(uuid.uuid4()), name, vid, "builtin", now),
                 )
 
+        # Migration: tts_configs table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tts_configs (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                api_key TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+
+        # Migration: voice_tts_links many-to-many table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS voice_tts_links (
+                voice_id TEXT NOT NULL REFERENCES voices(id) ON DELETE CASCADE,
+                tts_config_id TEXT NOT NULL REFERENCES tts_configs(id) ON DELETE CASCADE,
+                PRIMARY KEY (voice_id, tts_config_id)
+            )
+        """)
+
+        # Migration: add tts_config_id to agents
+        try:
+            conn.execute("ALTER TABLE agents ADD COLUMN tts_config_id TEXT REFERENCES tts_configs(id)")
+        except sqlite3.OperationalError:
+            pass
+
+        # Seed TTS configs
+        dashscope_key = os.environ.get("DASHSCOPE_API_KEY", "")
+        tts_seeds = [
+            ("通义通用TTS", "qwen", "qwen3-tts-flash-realtime"),
+            ("通义VC", "qwen", "qwen3-tts-vc-realtime-2026-01-15"),
+        ]
+        tts_ids = {}
+        for name, provider, model in tts_seeds:
+            existing = conn.execute("SELECT id FROM tts_configs WHERE name = ?", (name,)).fetchone()
+            if not existing:
+                tid = str(uuid.uuid4())
+                now = datetime.now(timezone.utc).isoformat()
+                conn.execute(
+                    "INSERT INTO tts_configs (id, name, provider, model, api_key, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (tid, name, provider, model, dashscope_key, now),
+                )
+                tts_ids[name] = tid
+            else:
+                tts_ids[name] = existing["id"]
+
+        # Seed voice_tts_links: built-in voices → 通义通用TTS, cloned voices → 通义VC
+        if tts_ids:
+            builtin_tts_id = tts_ids.get("通义通用TTS")
+            vc_tts_id = tts_ids.get("通义VC")
+            builtins = conn.execute("SELECT id FROM voices WHERE type = 'builtin'").fetchall()
+            cloned = conn.execute("SELECT id FROM voices WHERE type = 'cloned'").fetchall()
+            for v in builtins:
+                if builtin_tts_id:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO voice_tts_links (voice_id, tts_config_id) VALUES (?, ?)",
+                        (v["id"], builtin_tts_id),
+                    )
+            for v in cloned:
+                if vc_tts_id:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO voice_tts_links (voice_id, tts_config_id) VALUES (?, ?)",
+                        (v["id"], vc_tts_id),
+                    )
+
         admin_username = os.environ.get("ADMIN_USERNAME", "admin")
         admin_password = os.environ.get("ADMIN_PASSWORD", "admin")
         existing = conn.execute(

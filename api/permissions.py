@@ -36,8 +36,8 @@ def grant_permission(agent_id: str, body: GrantRequest, admin: dict = Depends(re
         copy_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
         db.execute(
-            "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, source_agent_id, voice_pool_id, model_config_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (copy_id, agent_row["alias"], agent_row["voice_id"], agent_row["system_prompt"], user_row["id"], agent_id, agent_row["voice_pool_id"], agent_row["model_config_id"], now),
+            "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, source_agent_id, voice_pool_id, model_config_id, tts_config_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (copy_id, agent_row["alias"], agent_row["voice_id"], agent_row["system_prompt"], user_row["id"], agent_id, agent_row["voice_pool_id"], agent_row["model_config_id"], agent_row["tts_config_id"], now),
         )
         db.commit()
         return AgentOut(
@@ -45,6 +45,7 @@ def grant_permission(agent_id: str, body: GrantRequest, admin: dict = Depends(re
             voice_pool_id=agent_row["voice_pool_id"],
             system_prompt=agent_row["system_prompt"], owner_id=user_row["id"],
             source_agent_id=agent_id, model_config_id=agent_row["model_config_id"],
+            tts_config_id=agent_row["tts_config_id"],
             created_at=now,
         )
     finally:
