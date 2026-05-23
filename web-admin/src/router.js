@@ -6,6 +6,7 @@ import UserListView from './views/UserListView.vue';
 import UserDetailView from './views/UserDetailView.vue';
 import ModelConfigListView from './views/ModelConfigListView.vue';
 import VoicePoolView from './views/VoicePoolView.vue';
+import TtsConfigListView from './views/TtsConfigListView.vue';
 
 const routes = [
   { path: '/login', component: LoginView },
@@ -16,6 +17,7 @@ const routes = [
   { path: '/users/:username', component: UserDetailView, props: true },
   { path: '/model-configs', component: ModelConfigListView },
   { path: '/voices', component: VoicePoolView },
+  { path: '/tts-configs', component: TtsConfigListView },
 ];
 
 const router = createRouter({ history: createWebHashHistory(), routes });
