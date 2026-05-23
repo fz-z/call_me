@@ -39,3 +39,11 @@ async def health():
     return {"status": "ok"}
 
 
+from fastapi.staticfiles import StaticFiles
+import os
+
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.isdir(static_dir):
+    app.mount("/admin", StaticFiles(directory=static_dir, html=True), name="admin")
+
+
