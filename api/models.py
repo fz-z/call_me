@@ -35,6 +35,7 @@ class AgentCreate(BaseModel):
 class AgentUpdate(BaseModel):
     alias: Optional[str] = None
     system_prompt: Optional[str] = None
+    model_config_id: Optional[str] = None
 
 
 class AgentOut(BaseModel):
@@ -44,6 +45,7 @@ class AgentOut(BaseModel):
     system_prompt: str
     owner_id: str
     source_agent_id: Optional[str] = None
+    model_config_id: Optional[str] = None
     created_at: str
 
 
@@ -65,6 +67,35 @@ class TokenRequest(BaseModel):
 class TokenResponse(BaseModel):
     token: str
     room_url: str
+
+
+class ModelConfigCreate(BaseModel):
+    name: str
+    provider: str
+    model: str
+    api_key: str
+    temperature: float = 0.7
+    max_tokens: int = 2048
+
+
+class ModelConfigUpdate(BaseModel):
+    name: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+
+
+class ModelConfigOut(BaseModel):
+    id: str
+    name: str
+    provider: str
+    model: str
+    api_key: str
+    temperature: float
+    max_tokens: int
+    created_at: str
 
 
 class SipBindRequest(BaseModel):
