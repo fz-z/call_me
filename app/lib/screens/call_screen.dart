@@ -36,7 +36,7 @@ class _CallScreenState extends State<CallScreen> {
 
       // Publish local microphone so the agent can hear the user
       try {
-        final track = LocalAudioTrack.create();
+        final track = await LocalAudioTrack.create();
         await room.localParticipant!.publishAudioTrack(track);
         _localTrack = track;
       } catch (e) {
