@@ -69,6 +69,26 @@ def init_db():
         except sqlite3.OperationalError:
             pass  # column already exists
 
+        # Migration: model_configs table for LLM config pool
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS model_configs (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                api_key TEXT NOT NULL,
+                temperature REAL NOT NULL DEFAULT 0.7,
+                max_tokens INTEGER NOT NULL DEFAULT 2048,
+                created_at TEXT NOT NULL
+            )
+        """)
+
+        # Migration: add model_config_id to agents
+        try:
+            conn.execute("ALTER TABLE agents ADD COLUMN model_config_id TEXT REFERENCES model_configs(id) ON DELETE SET NULL")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
         admin_username = os.environ.get("ADMIN_USERNAME", "admin")
         admin_password = os.environ.get("ADMIN_PASSWORD", "admin")
         existing = conn.execute(
