@@ -11,7 +11,7 @@
       <tbody>
         <tr v-for="mc in configs" :key="mc.id">
           <td>{{ mc.name }}</td>
-          <td>{{ mc.provider }}</td>
+          <td>{{ getApiKeyName(mc.api_key_id) || mc.provider }}</td>
           <td style="color:#4a90d9">{{ mc.model }}</td>
           <td>
             <span v-for="a in mc._agents" :key="a.id" class="tag">{{ a.alias }}</span>
@@ -37,9 +37,20 @@ import api from '../api.js';
 import ModelConfigForm from '../components/ModelConfigForm.vue';
 
 const configs = ref([]);
+const apiKeys = ref([]);
 const showForm = ref(false);
 const editId = ref(null);
 const editData = ref(null);
+
+function getApiKeyName(apiKeyId) {
+  if (!apiKeyId) return null;
+  const ak = apiKeys.value.find(k => k.id === apiKeyId);
+  return ak ? ak.name : null;
+}
+
+async function loadApiKeys() {
+  try { const r = await api.get('/admin/api-keys'); apiKeys.value = r.data; } catch (_) {}
+}
 
 async function load() {
   const [r1, r2] = await Promise.all([
@@ -64,5 +75,5 @@ async function del(mc) {
   await load();
 }
 
-onMounted(load);
+onMounted(() => { loadApiKeys(); load(); });
 </script>

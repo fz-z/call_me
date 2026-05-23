@@ -11,7 +11,7 @@
       <tbody>
         <tr v-for="tc in configs" :key="tc.id">
           <td>{{ tc.name }}</td>
-          <td>{{ tc.provider }}</td>
+          <td>{{ getApiKeyName(tc.api_key_id) || tc.provider }}</td>
           <td style="color:#4a90d9">{{ tc.model }}</td>
           <td>
             <span v-for="v in tc._voices" :key="v.id" class="tag">{{ v.name }}</span>
@@ -59,6 +59,12 @@ import api from '../api.js';
 const configs = ref([]);
 const apiKeys = ref([]);
 const showForm = ref(false);
+
+function getApiKeyName(apiKeyId) {
+  if (!apiKeyId) return null;
+  const ak = apiKeys.value.find(k => k.id === apiKeyId);
+  return ak ? ak.name : null;
+}
 const editId = ref(null);
 const form = reactive({ name: '', provider: 'qwen', model: '', api_key_id: '' });
 const loading = ref(false);
