@@ -35,11 +35,28 @@ def get_call_token(body: TokenRequest, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=403, detail="No permission to use this agent")
 
         room_name = f"call_{uuid.uuid4().hex[:12]}"
+        # Fetch model_config if agent has one
+        model_config = None
+        if agent_row["model_config_id"]:
+            mc_row = db.execute(
+                "SELECT * FROM model_configs WHERE id = ?",
+                (agent_row["model_config_id"],),
+            ).fetchone()
+            if mc_row:
+                model_config = {
+                    "provider": mc_row["provider"],
+                    "model": mc_row["model"],
+                    "api_key": mc_row["api_key"],
+                    "temperature": mc_row["temperature"],
+                    "max_tokens": mc_row["max_tokens"],
+                }
+
         agent_config = json.dumps({
             "agent_id": agent_row["id"],
             "alias": agent_row["alias"],
             "system_prompt": agent_row["system_prompt"],
             "voice_id": agent_row["voice_id"],
+            "model_config": model_config,
         })
 
         token = lk_api.AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET) \
