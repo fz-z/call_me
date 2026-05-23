@@ -19,7 +19,7 @@
         <span style="color:#888">STT</span>
         <span style="color:#888">全局配置</span>
       </div>
-      <div style="margin-top:8px;font-size:11px;color:#666">LLM 模型在"模型配置"页面管理。人设可通过编辑修改。</div>
+      <div style="margin-top:8px;font-size:11px;color:#666">LLM 模型在"LLM模型"页面管理。人设可通过编辑修改。</div>
     </div>
     <table>
       <thead><tr>

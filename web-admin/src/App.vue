@@ -8,9 +8,9 @@
       <nav>
         <router-link to="/agents">Agent 管理</router-link>
         <router-link to="/users">用户管理</router-link>
-        <router-link to="/model-configs">模型配置</router-link>
-        <router-link to="/voices">声音库</router-link>
+        <router-link to="/model-configs">LLM模型</router-link>
         <router-link to="/tts-configs">TTS 模型</router-link>
+        <router-link to="/voices">声音库</router-link>
       </nav>
       <div class="sidebar-footer">
         <span>{{ username }}</span>

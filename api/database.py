@@ -231,6 +231,65 @@ def init_db():
                     (str(uuid.uuid4()), seed_alias, seed_voice, seed_prompt, owner_id, now),
                 )
 
+        # Migration: api_keys table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                provider TEXT NOT NULL,
+                api_key TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+
+        # Seed API keys from .env
+        dashscope_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
+        deepseek_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+        key_seeds = []
+        if dashscope_key:
+            key_seeds.append(("DashScope", "qwen", dashscope_key))
+        if deepseek_key:
+            key_seeds.append(("DeepSeek", "deepseek", deepseek_key))
+        api_key_ids = {}
+        for name, provider, api_key in key_seeds:
+            existing = conn.execute("SELECT id FROM api_keys WHERE name = ?", (name,)).fetchone()
+            if not existing:
+                kid = str(uuid.uuid4())
+                now = datetime.now(timezone.utc).isoformat()
+                conn.execute(
+                    "INSERT INTO api_keys (id, name, provider, api_key, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (kid, name, provider, api_key, now),
+                )
+                api_key_ids[name] = kid
+            else:
+                api_key_ids[name] = existing["id"]
+
+        # Migration: add api_key_id to model_configs (replace api_key column)
+        try:
+            conn.execute("ALTER TABLE model_configs ADD COLUMN api_key_id TEXT REFERENCES api_keys(id)")
+        except sqlite3.OperationalError:
+            pass
+
+        # Migration: add api_key_id to tts_configs
+        try:
+            conn.execute("ALTER TABLE tts_configs ADD COLUMN api_key_id TEXT REFERENCES api_keys(id)")
+        except sqlite3.OperationalError:
+            pass
+
+        # Link existing model_configs to matching api_key
+        if api_key_ids:
+            for mc in conn.execute("SELECT id, provider FROM model_configs WHERE api_key_id IS NULL").fetchall():
+                key_name = "DashScope" if mc["provider"] == "qwen" else "DeepSeek"
+                if key_name in api_key_ids:
+                    conn.execute("UPDATE model_configs SET api_key_id = ? WHERE id = ?",
+                                 (api_key_ids[key_name], mc["id"]))
+
+            for tc in conn.execute("SELECT id, provider FROM tts_configs WHERE api_key_id IS NULL").fetchall():
+                key_name = "DashScope" if tc["provider"] == "qwen" else "DeepSeek"
+                if key_name in api_key_ids:
+                    conn.execute("UPDATE tts_configs SET api_key_id = ? WHERE id = ?",
+                                 (api_key_ids[key_name], tc["id"]))
+
         conn.commit()
     finally:
         conn.close()

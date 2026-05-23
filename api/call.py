@@ -39,14 +39,14 @@ def get_call_token(body: TokenRequest, user: dict = Depends(get_current_user)):
         model_config = None
         if agent_row["model_config_id"]:
             mc_row = db.execute(
-                "SELECT * FROM model_configs WHERE id = ?",
+                "SELECT mc.*, ak.api_key as resolved_key FROM model_configs mc LEFT JOIN api_keys ak ON mc.api_key_id = ak.id WHERE mc.id = ?",
                 (agent_row["model_config_id"],),
             ).fetchone()
             if mc_row:
                 model_config = {
                     "provider": mc_row["provider"],
                     "model": mc_row["model"],
-                    "api_key": mc_row["api_key"],
+                    "api_key": mc_row["resolved_key"] or mc_row["api_key"] or "",
                     "temperature": mc_row["temperature"],
                     "max_tokens": mc_row["max_tokens"],
                 }
@@ -55,14 +55,14 @@ def get_call_token(body: TokenRequest, user: dict = Depends(get_current_user)):
         tts_config = None
         if agent_row["tts_config_id"]:
             tc_row = db.execute(
-                "SELECT * FROM tts_configs WHERE id = ?",
+                "SELECT tc.*, ak.api_key as resolved_key FROM tts_configs tc LEFT JOIN api_keys ak ON tc.api_key_id = ak.id WHERE tc.id = ?",
                 (agent_row["tts_config_id"],),
             ).fetchone()
             if tc_row:
                 tts_config = {
                     "provider": tc_row["provider"],
                     "model": tc_row["model"],
-                    "api_key": tc_row["api_key"],
+                    "api_key": tc_row["resolved_key"] or tc_row["api_key"] or "",
                 }
 
         agent_config = json.dumps({

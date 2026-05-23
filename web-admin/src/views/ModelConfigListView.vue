@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="page-header">
-      <h2>模型配置</h2>
+      <h2>LLM模型</h2>
       <button class="btn btn-primary" @click="showForm = true">+ 新建配置</button>
     </div>
     <table>

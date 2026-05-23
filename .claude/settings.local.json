@@ -26,7 +26,9 @@
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:8000/admin/)",
       "Bash(curl -s -X POST http://localhost:8000/api/auth/login -H \"Content-Type: application/json\" -d '{\"username\":\"admin\",\"password\":\"admin\"}')",
       "Bash(python3 -c \"import sys,json; [print\\(f'  {v[\\\\\"name\\\\\"]} \\({v[\\\\\"type\\\\\"]}\\)'\\) for v in json.load\\(sys.stdin\\)]\")",
-      "Bash(set -e)"
+      "Bash(set -e)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8000/admin/)",
+      "Bash(python3 -m pytest tests/ -q)"
     ]
   }
 }

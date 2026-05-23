@@ -1,7 +1,7 @@
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
     <form class="modal" @submit.prevent="submit" style="min-width:400px">
-      <h3>{{ editId ? '编辑' : '新建' }}模型配置</h3>
+      <h3>{{ editId ? '编辑' : '新建' }}LLM模型</h3>
       <input v-model="form.name" placeholder="配置名称" required />
       <select v-model="form.provider" required>
         <option value="qwen">qwen (通义千问)</option>

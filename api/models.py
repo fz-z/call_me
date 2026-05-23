@@ -74,11 +74,32 @@ class TokenResponse(BaseModel):
     room_url: str
 
 
+class ApiKeyOut(BaseModel):
+    id: str
+    name: str
+    provider: str
+    api_key: str
+    created_at: str
+
+
+class ApiKeyCreate(BaseModel):
+    name: str
+    provider: str
+    api_key: str
+
+
+class ApiKeyUpdate(BaseModel):
+    name: Optional[str] = None
+    provider: Optional[str] = None
+    api_key: Optional[str] = None
+
+
 class ModelConfigCreate(BaseModel):
     name: str
     provider: str
     model: str
-    api_key: str
+    api_key: Optional[str] = None
+    api_key_id: Optional[str] = None
     temperature: float = 0.7
     max_tokens: int = 2048
 
@@ -88,6 +109,7 @@ class ModelConfigUpdate(BaseModel):
     provider: Optional[str] = None
     model: Optional[str] = None
     api_key: Optional[str] = None
+    api_key_id: Optional[str] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
 
@@ -97,7 +119,8 @@ class ModelConfigOut(BaseModel):
     name: str
     provider: str
     model: str
-    api_key: str
+    api_key: Optional[str] = None
+    api_key_id: Optional[str] = None
     temperature: float
     max_tokens: int
     created_at: str
@@ -107,7 +130,8 @@ class TtsConfigCreate(BaseModel):
     name: str
     provider: str
     model: str
-    api_key: str
+    api_key: Optional[str] = None
+    api_key_id: Optional[str] = None
 
 
 class TtsConfigUpdate(BaseModel):
@@ -115,6 +139,7 @@ class TtsConfigUpdate(BaseModel):
     provider: Optional[str] = None
     model: Optional[str] = None
     api_key: Optional[str] = None
+    api_key_id: Optional[str] = None
 
 
 class TtsConfigOut(BaseModel):
@@ -122,7 +147,8 @@ class TtsConfigOut(BaseModel):
     name: str
     provider: str
     model: str
-    api_key: str
+    api_key: Optional[str] = None
+    api_key_id: Optional[str] = None
     created_at: str
 
 
