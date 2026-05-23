@@ -10,10 +10,10 @@ async def enroll_voice(audio_bytes: bytes, mime_type: str, api_key: str) -> str:
     data_uri = f"data:{mime_type};base64,{b64}"
 
     payload = {
-        "model": "qwen-voice-enrollment",
+        "model": os.environ.get("VOICE_ENROLLMENT_MODEL", "qwen-voice-enrollment"),
         "input": {
             "action": "create",
-            "target_model": os.environ.get("QWEN_TTS_MODEL", "qwen3-tts-vc-realtime-2026-01-15"),
+            "target_model": os.environ.get("SEED_TTS_VC_MODEL", "qwen3-tts-vc-realtime-2026-01-15"),
             "preferred_name": "voice",
             "audio": {"data": data_uri},
         },
