@@ -1,13 +1,11 @@
-import os
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException
 
 from database import _sync_conn
 from models import AgentOut, AgentCreate, AgentUpdate
 from auth import get_current_user
-from voice_enrollment import enroll_voice
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -20,36 +18,31 @@ def _user_can_access(db, agent_id: str, user_id: str, role: str) -> bool:
 
 
 @router.post("", response_model=AgentOut)
-async def create_agent(
-    alias: str = Form(...),
-    system_prompt: str = Form(""),
-    audio_file: UploadFile = File(...),
+def create_agent(
+    body: AgentCreate,
     user: dict = Depends(get_current_user),
 ):
-    api_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
-    if not api_key:
-        raise HTTPException(status_code=500, detail="DASHSCOPE_API_KEY not configured")
-
-    audio_bytes = await audio_file.read()
-    content_type = audio_file.content_type or "audio/wav"
-
-    try:
-        voice_id = await enroll_voice(audio_bytes, content_type, api_key)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Voice enrollment failed: {e}")
-
-    agent_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    """Create an agent by selecting a voice from the pool. No audio upload."""
     db = _sync_conn()
     try:
+        # Lookup voice from pool
+        voice = db.execute(
+            "SELECT voice_id FROM voices WHERE id = ?", (body.voice_pool_id,)
+        ).fetchone()
+        if not voice:
+            raise HTTPException(status_code=404, detail="Voice not found in pool")
+
+        agent_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
         db.execute(
-            "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (agent_id, alias, voice_id, system_prompt, user["id"], now),
+            "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, voice_pool_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (agent_id, body.alias, voice["voice_id"], body.system_prompt, user["id"], body.voice_pool_id, now),
         )
         db.commit()
         return AgentOut(
-            id=agent_id, alias=alias, voice_id=voice_id,
-            system_prompt=system_prompt, owner_id=user["id"], created_at=now,
+            id=agent_id, alias=body.alias, voice_id=voice["voice_id"],
+            voice_pool_id=body.voice_pool_id,
+            system_prompt=body.system_prompt, owner_id=user["id"], created_at=now,
         )
     finally:
         db.close()
@@ -100,15 +93,29 @@ def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_curr
         new_alias = body.alias if body.alias is not None else row["alias"]
         new_prompt = body.system_prompt if body.system_prompt is not None else row["system_prompt"]
         new_model_config_id = body.model_config_id if body.model_config_id is not None else row["model_config_id"]
+        new_voice_pool_id = row["voice_pool_id"] if "voice_pool_id" in row.keys() else None
+        new_voice_id = row["voice_id"]
+
+        if body.voice_pool_id is not None:
+            voice_row = db.execute(
+                "SELECT voice_id FROM voices WHERE id = ?", (body.voice_pool_id,)
+            ).fetchone()
+            if not voice_row:
+                raise HTTPException(status_code=404, detail="Voice not found")
+            new_voice_pool_id = body.voice_pool_id
+            new_voice_id = voice_row["voice_id"]
+
         db.execute(
-            "UPDATE agents SET alias = ?, system_prompt = ?, model_config_id = ? WHERE id = ?",
-            (new_alias, new_prompt, new_model_config_id, agent_id),
+            "UPDATE agents SET alias=?, system_prompt=?, model_config_id=?, voice_pool_id=?, voice_id=? WHERE id=?",
+            (new_alias, new_prompt, new_model_config_id, new_voice_pool_id, new_voice_id, agent_id),
         )
         db.commit()
         return AgentOut(
-            id=agent_id, alias=new_alias, voice_id=row["voice_id"],
+            id=agent_id, alias=new_alias, voice_id=new_voice_id,
+            voice_pool_id=new_voice_pool_id,
             system_prompt=new_prompt, owner_id=row["owner_id"],
-            model_config_id=new_model_config_id, created_at=row["created_at"],
+            source_agent_id=row["source_agent_id"] if "source_agent_id" in row.keys() else None, model_config_id=new_model_config_id,
+            created_at=row["created_at"],
         )
     finally:
         db.close()
