@@ -41,6 +41,10 @@
       <form class="modal" @submit.prevent="upload" style="min-width:380px">
         <h3>上传音频生成音色</h3>
         <input v-model="voiceName" placeholder="音色名称" required />
+        <select v-model="selectedTtsConfigId" style="margin-bottom:8px">
+          <option value="">-- 选择 TTS 模型 --</option>
+          <option v-for="tc in cloneableTtsConfigs" :key="tc.id" :value="tc.id">{{ tc.name }} ({{ tc.model }})</option>
+        </select>
         <input type="file" accept="audio/*" @change="onFile" required style="margin-bottom:12px" />
         <p style="font-size:11px;color:#888;margin-bottom:12px">上传 30s~5min 的 wav/mp3/m4a 音频</p>
         <p v-if="uploadError" class="error">{{ uploadError }}</p>
@@ -144,8 +148,13 @@ import api from '../api.js';
 
 const voices = ref([]);
 const ttsConfigs = ref([]);
+
+const cloneableTtsConfigs = computed(() =>
+  ttsConfigs.value.filter(tc => tc.supports_voice_clone !== false)
+);
 const showUpload = ref(false);
 const voiceName = ref('');
+const selectedTtsConfigId = ref('');
 const audioFile = ref(null);
 const uploading = ref(false);
 const uploadError = ref('');
@@ -199,16 +208,20 @@ async function load() {
 function onFile(e) { audioFile.value = e.target.files[0]; }
 
 async function upload() {
-  if (!audioFile.value || !voiceName.value.trim()) return;
+  if (!voiceName.value.trim()) { uploadError.value = '请输入音色名称'; return; }
+  if (!selectedTtsConfigId.value) { uploadError.value = '请选择 TTS 模型'; return; }
+  if (!audioFile.value) { uploadError.value = '请选择音频文件'; return; }
   uploading.value = true; uploadError.value = '';
   try {
     const fd = new FormData();
     fd.append('name', voiceName.value.trim());
     fd.append('audio_file', audioFile.value);
+    if (selectedTtsConfigId.value) fd.append('tts_config_id', selectedTtsConfigId.value);
     await api.post('/admin/voices', fd);
     showUpload.value = false;
     voiceName.value = '';
     audioFile.value = null;
+    selectedTtsConfigId.value = '';
     await load();
   } catch (e) {
     uploadError.value = e.response?.data?.detail || 'Upload failed';

@@ -11,10 +11,17 @@ router = APIRouter(prefix="/api/admin/tts-configs", tags=["tts-configs"])
 
 
 @router.get("", response_model=list[TtsConfigOut])
-def list_configs(admin: dict = Depends(require_admin)):
+def list_configs(supports_voice_clone: bool | None = None, admin: dict = Depends(require_admin)):
     db = _sync_conn()
     try:
-        rows = db.execute("SELECT * FROM tts_configs ORDER BY created_at DESC").fetchall()
+        if supports_voice_clone is not None:
+            val = 1 if supports_voice_clone else 0
+            rows = db.execute(
+                "SELECT * FROM tts_configs WHERE supports_voice_clone = ? ORDER BY created_at DESC",
+                (val,),
+            ).fetchall()
+        else:
+            rows = db.execute("SELECT * FROM tts_configs ORDER BY created_at DESC").fetchall()
         return [TtsConfigOut(**dict(r)) for r in rows]
     finally:
         db.close()
@@ -40,13 +47,14 @@ def create_config(body: TtsConfigCreate, admin: dict = Depends(require_admin)):
                 api_key_id = key_row["id"]
 
         db.execute(
-            "INSERT INTO tts_configs (id, name, provider, model, api_key, api_key_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (config_id, body.name, body.provider, body.model, body.api_key or "", api_key_id, now),
+            "INSERT INTO tts_configs (id, name, provider, model, api_key, api_key_id, supports_voice_clone, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (config_id, body.name, body.provider, body.model, body.api_key or "", api_key_id, 1 if body.supports_voice_clone else 0, now),
         )
         db.commit()
         return TtsConfigOut(
             id=config_id, name=body.name, provider=body.provider,
-            model=body.model, api_key=body.api_key, api_key_id=api_key_id, created_at=now,
+            model=body.model, api_key=body.api_key, api_key_id=api_key_id,
+            supports_voice_clone=body.supports_voice_clone, created_at=now,
         )
     finally:
         db.close()
@@ -72,14 +80,19 @@ def update_config(config_id: str, body: TtsConfigUpdate, admin: dict = Depends(r
             if key_row:
                 api_key_id = key_row["id"]
 
+        supports_clone = row["supports_voice_clone"]
+        if body.supports_voice_clone is not None:
+            supports_clone = 1 if body.supports_voice_clone else 0
+
         db.execute(
-            "UPDATE tts_configs SET name=?, provider=?, model=?, api_key=?, api_key_id=? WHERE id=?",
+            "UPDATE tts_configs SET name=?, provider=?, model=?, api_key=?, api_key_id=?, supports_voice_clone=? WHERE id=?",
             (
                 body.name if body.name is not None else row["name"],
                 body.provider if body.provider is not None else row["provider"],
                 body.model if body.model is not None else row["model"],
                 body.api_key if body.api_key is not None else row["api_key"],
                 api_key_id,
+                supports_clone,
                 config_id,
             ),
         )

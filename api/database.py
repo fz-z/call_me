@@ -155,6 +155,12 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
+        # Migration: add supports_voice_clone to tts_configs (before seed)
+        try:
+            conn.execute("ALTER TABLE tts_configs ADD COLUMN supports_voice_clone INTEGER NOT NULL DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
+
         # Seed TTS configs — each seeds independently when .env has its model
         dashscope_key = os.environ.get("DASHSCOPE_API_KEY", "")
         tts_ids = {}
@@ -173,9 +179,10 @@ def init_db():
                 if not existing:
                     tid = str(uuid.uuid4())
                     now = datetime.now(timezone.utc).isoformat()
+                    supports_clone = 1 if "VC" in name or "vc" in model else 0
                     conn.execute(
-                        "INSERT INTO tts_configs (id, name, provider, model, api_key, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                        (tid, name, provider, model, dashscope_key, now),
+                        "INSERT INTO tts_configs (id, name, provider, model, api_key, supports_voice_clone, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (tid, name, provider, model, dashscope_key, supports_clone, now),
                     )
                     tts_ids[name] = tid
                 else:
@@ -300,7 +307,11 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
-        # Link existing model_configs to matching api_key
+        # Migration: add supports_voice_clone to tts_configs
+        try:
+            conn.execute("ALTER TABLE tts_configs ADD COLUMN supports_voice_clone INTEGER NOT NULL DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
         if api_key_ids:
             for mc in conn.execute("SELECT id, provider FROM model_configs WHERE api_key_id IS NULL").fetchall():
                 key_name = "DashScope" if mc["provider"] == "qwen" else "DeepSeek"

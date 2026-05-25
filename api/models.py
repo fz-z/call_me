@@ -134,6 +134,7 @@ class TtsConfigCreate(BaseModel):
     model: str
     api_key: Optional[str] = None
     api_key_id: Optional[str] = None
+    supports_voice_clone: bool = True
 
 
 class TtsConfigUpdate(BaseModel):
@@ -142,6 +143,7 @@ class TtsConfigUpdate(BaseModel):
     model: Optional[str] = None
     api_key: Optional[str] = None
     api_key_id: Optional[str] = None
+    supports_voice_clone: Optional[bool] = None
 
 
 class TtsConfigOut(BaseModel):
@@ -151,6 +153,7 @@ class TtsConfigOut(BaseModel):
     model: str
     api_key: Optional[str] = None
     api_key_id: Optional[str] = None
+    supports_voice_clone: bool = True
     created_at: str
 
 

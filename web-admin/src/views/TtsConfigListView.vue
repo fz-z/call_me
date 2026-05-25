@@ -6,13 +6,17 @@
     </div>
     <table>
       <thead><tr>
-        <th>名称</th><th>提供商</th><th>模型</th><th>关联音色</th><th>操作</th>
+        <th>名称</th><th>提供商</th><th>模型</th><th>声音复刻</th><th>关联音色</th><th>操作</th>
       </tr></thead>
       <tbody>
         <tr v-for="tc in configs" :key="tc.id">
           <td>{{ tc.name }}</td>
           <td>{{ getApiKeyName(tc.api_key_id) || tc.provider }}</td>
           <td style="color:#4a90d9">{{ tc.model }}</td>
+          <td>
+            <span v-if="tc.supports_voice_clone !== false" class="tag" style="background:#1a5c1a">支持</span>
+            <span v-else class="tag" style="background:#3d2d00">不支持</span>
+          </td>
           <td>
             <span v-for="v in tc._voices" :key="v.id" class="tag">{{ v.name }}</span>
             <span v-if="!tc._voices?.length" style="color:#888;font-size:12px">暂无</span>
@@ -23,7 +27,7 @@
           </td>
         </tr>
         <tr v-if="!configs.length">
-          <td colspan="5" style="color:#888;text-align:center;padding:24px">暂无配置。Agent 将使用 .env 系统默认 TTS。</td>
+          <td colspan="6" style="color:#888;text-align:center;padding:24px">暂无配置。Agent 将使用 .env 系统默认 TTS。</td>
         </tr>
       </tbody>
     </table>
@@ -33,15 +37,15 @@
       <form class="modal" @submit.prevent="submit" style="min-width:400px">
         <h3>{{ editId ? '编辑' : '新建' }} TTS 配置</h3>
         <input v-model="form.name" placeholder="配置名称" required />
-        <select v-model="form.provider" required>
-          <option value="qwen">qwen</option>
-          <option value="elevenlabs">elevenlabs</option>
-        </select>
-        <input v-model="form.model" placeholder="模型名 (如 qwen3-tts-flash-realtime)" required />
-        <select v-model="form.api_key_id" required>
+        <select v-model="form.api_key_id" required @change="onApiKeyChange">
           <option value="">-- 选择 API Key --</option>
           <option v-for="ak in apiKeys" :key="ak.id" :value="ak.id">{{ ak.name }} ({{ ak.provider }})</option>
         </select>
+        <input v-model="form.model" placeholder="模型名 (如 qwen3-tts-flash-realtime)" required />
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;color:#ccc;cursor:pointer">
+          <input type="checkbox" v-model="form.supports_voice_clone" />
+          支持声音复刻
+        </label>
         <p v-if="error" class="error">{{ error }}</p>
         <div class="modal-actions">
           <button type="button" class="btn-ghost" @click="closeForm">取消</button>
@@ -66,12 +70,17 @@ function getApiKeyName(apiKeyId) {
   return ak ? ak.name : null;
 }
 const editId = ref(null);
-const form = reactive({ name: '', provider: 'qwen', model: '', api_key_id: '' });
+const form = reactive({ name: '', provider: 'qwen', model: '', api_key_id: '', supports_voice_clone: true });
 const loading = ref(false);
 const error = ref('');
 
 async function loadApiKeys() {
   try { const r = await api.get('/admin/api-keys'); apiKeys.value = r.data; } catch (_) {}
+}
+
+function onApiKeyChange() {
+  const ak = apiKeys.value.find(k => k.id === form.api_key_id);
+  if (ak) form.provider = ak.provider;
 }
 
 async function load() {
@@ -94,6 +103,7 @@ function edit(tc) {
   form.provider = tc.provider;
   form.model = tc.model;
   form.api_key_id = tc.api_key_id || '';
+  form.supports_voice_clone = tc.supports_voice_clone !== false;
   showForm.value = true;
 }
 
@@ -104,6 +114,7 @@ function closeForm() {
   form.provider = 'qwen';
   form.model = '';
   form.api_key_id = '';
+  form.supports_voice_clone = true;
   error.value = '';
 }
 
@@ -116,6 +127,7 @@ async function submit() {
       provider: form.provider,
       model: form.model,
       api_key_id: form.api_key_id || null,
+      supports_voice_clone: form.supports_voice_clone,
     };
     if (editId.value) {
       await api.patch(`/admin/tts-configs/${editId.value}`, payload);
