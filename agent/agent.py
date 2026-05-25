@@ -186,21 +186,17 @@ async def entrypoint(ctx: JobContext):
         ),
     )
 
-    await session.start(
-        agent=CallMeAgent(system_prompt=system_prompt),
-        room=ctx.room,
-        room_options=room_io.RoomOptions(
-            audio_input=room_io.AudioInputOptions(
-                noise_cancellation=lambda params: noise_cancellation.BVCTelephony()
-                if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
-                else noise_cancellation.BVC(),
-            ),
-        ),
-    )
-
-    # Register disconnect callback to record call duration
+    # Register call log callback BEFORE session.start, so it fires immediately
+    # when the user disconnects (participant_disconnected) rather than waiting
+    # for the room-level "disconnected" event which can be delayed.
     if call_log_id:
-        def _on_disconnect():
+        _call_ended = False
+
+        def _end_call_log():
+            nonlocal _call_ended
+            if _call_ended:
+                return
+            _call_ended = True
             duration = int(time.time() - started_at)
             api_base = os.getenv("API_BASE_URL", "http://api:8000")
             url = f"{api_base}/api/call/admin/call-logs/{call_log_id}/end"
@@ -212,7 +208,27 @@ async def entrypoint(ctx: JobContext):
             except Exception as e:
                 logger.warning(f"Failed to update call_log {call_log_id}: {e}")
 
-        ctx.room.on("disconnected", _on_disconnect)
+        @ctx.room.on("participant_disconnected")
+        def _on_participant_left(participant):
+            # User participant left — mark call as ended
+            _end_call_log()
+
+        @ctx.room.on("disconnected")
+        def _on_disconnected():
+            # Safety net: room-level disconnect
+            _end_call_log()
+
+    await session.start(
+        agent=CallMeAgent(system_prompt=system_prompt),
+        room=ctx.room,
+        room_options=room_io.RoomOptions(
+            audio_input=room_io.AudioInputOptions(
+                noise_cancellation=lambda params: noise_cancellation.BVCTelephony()
+                if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
+                else noise_cancellation.BVC(),
+            ),
+        ),
+    )
 
     # Agent speaks first: generate a short greeting via LLM
     from livekit.agents.llm import ChatContext, ChatMessage
