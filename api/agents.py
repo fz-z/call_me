@@ -128,9 +128,9 @@ def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_curr
                 new_voice_pool_id = body.voice_pool_id
                 new_voice_id = voice_row["voice_id"]
             else:
-                # empty string = clear voice_pool_id, fall back to system prompt voice
+                # empty string = clear voice_pool_id and voice_id
                 new_voice_pool_id = None
-                new_voice_id = row["voice_id"]
+                new_voice_id = None
 
         db.execute(
             "UPDATE agents SET alias=?, system_prompt=?, model_config_id=?, voice_pool_id=?, voice_id=?, tts_config_id=? WHERE id=?",

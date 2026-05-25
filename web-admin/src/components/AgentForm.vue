@@ -7,7 +7,7 @@
       <div v-if="step === 1">
         <p style="color:#888;font-size:12px;margin-bottom:12px">Step 1/4: 选择 TTS 模型</p>
         <select v-model="selectedTtsConfigId" style="width:100%;padding:8px;margin-bottom:12px;background:#0f0f1a;border:1px solid #333;color:#e0e0e0;border-radius:4px" size="6">
-          <option value="">系统默认 (.env)</option>
+          <option value="">系统默认</option>
           <option v-for="tc in ttsConfigs" :key="tc.id" :value="tc.id">
             {{ tc.name }} ({{ tc.provider }}/{{ tc.model }})
           </option>
@@ -17,7 +17,7 @@
         </p>
         <div class="modal-actions">
           <button class="btn-ghost" @click="$emit('close')">取消</button>
-          <button class="btn btn-primary" @click="step = 2" :disabled="!selectedTtsConfigId">下一步</button>
+          <button class="btn btn-primary" @click="step = 2">下一步</button>
         </div>
       </div>
 
@@ -46,7 +46,7 @@
       <div v-if="step === 3">
         <p style="color:#888;font-size:12px;margin-bottom:12px">Step 3/4: 选择 LLM 模型</p>
         <select v-model="selectedModelConfigId" style="width:100%;padding:8px;margin-bottom:12px;background:#0f0f1a;border:1px solid #333;color:#e0e0e0;border-radius:4px" size="6">
-          <option value="">系统默认 (.env)</option>
+          <option value="">系统默认</option>
           <option v-for="mc in modelConfigs" :key="mc.id" :value="mc.id">
             {{ mc.name }} ({{ mc.provider }}/{{ mc.model }})
           </option>
@@ -127,6 +127,8 @@ onMounted(async () => {
     // If editing with a pre-selected TTS config, load cascaded voices
     if (selectedTtsConfigId.value) {
       filterVoices();
+    } else {
+      filteredVoices.value = allVoices.value;
     }
   } catch (_) {}
 });
@@ -142,7 +144,7 @@ watch(selectedTtsConfigId, async (newVal) => {
 
 async function filterVoices() {
   if (!selectedTtsConfigId.value) {
-    filteredVoices.value = [];
+    filteredVoices.value = allVoices.value;
     return;
   }
   loadingVoices.value = true;

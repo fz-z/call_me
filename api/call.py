@@ -79,11 +79,20 @@ def get_call_token(body: TokenRequest, user: dict = Depends(get_current_user)):
                     "api_key": tc_row["resolved_key"] or tc_row["api_key"] or "",
                 }
 
+        # Fallback voice_id: if agent has none, use first voice from pool
+        voice_id = agent_row["voice_id"]
+        if not voice_id:
+            default_voice = db.execute(
+                "SELECT voice_id FROM voices ORDER BY type, name LIMIT 1"
+            ).fetchone()
+            if default_voice:
+                voice_id = default_voice["voice_id"]
+
         agent_config = json.dumps({
             "agent_id": agent_row["id"],
             "alias": agent_row["alias"],
             "system_prompt": agent_row["system_prompt"],
-            "voice_id": agent_row["voice_id"],
+            "voice_id": voice_id,
             "model_config": model_config,
             "tts_config": tts_config,
         })

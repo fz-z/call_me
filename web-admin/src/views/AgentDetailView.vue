@@ -16,11 +16,11 @@
       </div>
       <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #222">
         <span style="color:#888">LLM</span>
-        <span>{{ agent.model_config_id ? getConfigName(agent.model_config_id) : '系统默认 (.env)' }}</span>
+        <span>{{ agent.model_config_id ? getConfigName(agent.model_config_id) : '系统默认' }}</span>
       </div>
       <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #222">
         <span style="color:#888">TTS</span>
-        <span>{{ agent.tts_config_id ? getTtsConfigName(agent.tts_config_id) : '系统默认 (.env)' }}</span>
+        <span>{{ agent.tts_config_id ? getTtsConfigName(agent.tts_config_id) : '系统默认' }}</span>
       </div>
       <div style="display:flex;justify-content:space-between;padding:6px 0">
         <span style="color:#888">STT</span>
@@ -54,7 +54,7 @@
         <h3>编辑 Pipeline 配置</h3>
         <label style="display:block;margin:12px 0 4px;color:#888;font-size:13px">TTS 模型</label>
         <select v-model="pipelineForm.tts_config_id" @change="onTtsChange">
-          <option value="">系统默认 (.env)</option>
+          <option value="">系统默认</option>
           <option v-for="t in ttsConfigs" :key="t.id" :value="t.id">{{ t.name }} ({{ t.provider }}/{{ t.model }})</option>
         </select>
         <label style="display:block;margin:12px 0 4px;color:#888;font-size:13px">音色</label>
@@ -62,12 +62,12 @@
           {{ loadingFilteredVoices ? '加载中...' : '此 TTS 模型暂无关联声音' }}
         </p>
         <select v-model="pipelineForm.voice_pool_id">
-          <option value="">系统默认 (.env)</option>
+          <option value="">系统默认</option>
           <option v-for="v in filteredVoices" :key="v.id" :value="v.id">{{ v.name }} ({{ v.type === 'builtin' ? '内置' : '克隆' }})</option>
         </select>
         <label style="display:block;margin:12px 0 4px;color:#888;font-size:13px">LLM 模型</label>
         <select v-model="pipelineForm.model_config_id">
-          <option value="">系统默认 (.env)</option>
+          <option value="">系统默认</option>
           <option v-for="m in modelConfigs" :key="m.id" :value="m.id">{{ m.name }} ({{ m.provider }}/{{ m.model }})</option>
         </select>
         <p v-if="pipelineEditError" class="error">{{ pipelineEditError }}</p>
@@ -151,7 +151,7 @@ function getUserName(uid) {
 }
 
 function getVoiceName(id) {
-  if (!id) return '系统默认 (.env)';
+  if (!id) return '系统默认';
   const v = voices.value.find(x => x.id === id);
   return v ? `${v.name} (${v.voice_id?.substring(0, 20)}...)` : id.substring(0, 8);
 }
