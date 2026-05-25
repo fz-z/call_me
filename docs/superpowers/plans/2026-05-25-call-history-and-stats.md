@@ -4,7 +4,7 @@
 
 **Goal:** Record every call's start/end/duration, expose call history with filtering, and show stats dashboard with charts.
 
-**Architecture:** Token endpoint writes call_log (status=running), agent worker calls back on disconnect to mark completed with duration. Stats endpoints query the call_logs table with aggregations.
+**Architecture:** Token endpoint writes call_log (status=running), agent worker listens for participant_disconnected event to immediately mark completed with duration. Stats endpoints query the call_logs table with aggregations.
 
 **Tech Stack:** FastAPI + SQLite (backend), Vue 3 + Chart.js (frontend)
 
@@ -636,61 +636,41 @@ Extract `call_log_id` from config. After `voice_id = config.get("voice_id")` (li
 call_log_id = config.get("call_log_id")
 ```
 
-After the `session.start()` block (after line 194, before the greeting section), add disconnect handler. Right after the `session.start(...)` call and its closing parenthesis:
+Register call log callback BEFORE `session.start()` so it fires immediately when the user disconnects. Use `participant_disconnected` (millisecond-level) as primary trigger with `disconnected` as safety net, guarded by `_call_ended` to avoid duplicate callbacks.
 
 ```python
-# After session.start(...) block, register disconnect callback
-    @ctx.room.on("disconnected")
-    def _on_disconnect():
-        if not call_log_id:
+# BEFORE session.start — registers callbacks that fire on user departure
+if call_log_id:
+    _call_ended = False
+
+    def _end_call_log():
+        nonlocal _call_ended
+        if _call_ended:
             return
+        _call_ended = True
         duration = int(time.time() - started_at)
         api_base = os.getenv("API_BASE_URL", "http://api:8000")
         url = f"{api_base}/api/call/admin/call-logs/{call_log_id}/end"
         try:
-            import requests
-            requests.patch(url, json={"status": "completed", "duration_seconds": duration}, timeout=5)
-            logger.info(f"Call log {call_log_id} marked completed, duration={duration}s")
+            data = json.dumps({"status": "completed", "duration_seconds": duration}).encode()
+            req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="PATCH")
+            urllib.request.urlopen(req, timeout=5)
+            logger.info(f"Call log {call_log_id} ended, duration={duration}s")
         except Exception as e:
             logger.warning(f"Failed to update call_log {call_log_id}: {e}")
+
+    @ctx.room.on("participant_disconnected")
+    def _on_participant_left(participant):
+        _end_call_log()
+
+    @ctx.room.on("disconnected")
+    def _on_disconnected():
+        _end_call_log()
+
+await session.start(...)
 ```
 
-Wait — LiveKit Agent framework has async event handlers. Let me think about this more carefully. The `ctx.room.on("disconnected")` is an event emitter pattern in LiveKit. Actually, in LiveKit's Python SDK, room events are registered with `ctx.room.on()` and the callback is called when the event fires. But this is a sync callback in an async context.
-
-Actually, looking at the LiveKit agents framework, `ctx.room` has an `on` method for events like "disconnected", "participant_connected", etc. The callback is synchronous but can call sync code.
-
-For making HTTP requests from an async context, we should use `requests` (sync) inside the callback since the event handler is fire-and-forget. But if we're in an async event loop, we might need `aiohttp` or run it in a thread.
-
-Actually, the simplest approach: use `urllib.request` which is in the stdlib and works synchronously. Or better yet, just use `requests` since the agent already has it as a dependency.
-
-But wait — let me check if `requests` is in the agent's dependencies. Let me check the agent's pyproject.toml.
-
-Actually, let me use `aiohttp` since the agent likely already has it. Or even simpler: just log the duration and let a separate process handle it. But the spec says to callback.
-
-Let me use `httpx` or `aiohttp` — actually, the simplest is to use Python's `urllib.request` which requires no extra dependencies:
-
-```python
-import urllib.request
-import json as json_mod
-
-req = urllib.request.Request(
-    url,
-    data=json_mod.dumps({"status": "completed", "duration_seconds": duration}).encode(),
-    headers={"Content-Type": "application/json"},
-    method="PATCH",
-)
-urllib.request.urlopen(req, timeout=5)
-```
-
-This is simpler and avoids dependency issues. Let me use this approach.
-
-Also, I need to be careful about the event handling. In LiveKit's agent framework, `ctx.room.on("disconnected")` returns immediately and the callback fires later. But the callback itself runs synchronously. So `urllib.request` is fine.
-
-But actually, the disconnect event might fire after the `entrypoint` coroutine has already exited. The `_on_disconnect` function captures `call_log_id`, `started_at`, and `api_base` from the enclosing scope. This should work as a closure.
-
-One concern: `ctx.room` might not have an `on` method. Let me check what LiveKit Python SDK provides for room events. In the LiveKit Python SDK, `rtc.Room` has an `on` method for event registration. `ctx.room` is a `rtc.Room` instance. Events include "disconnected", "participant_connected", etc.
-
-I'll use this approach.
+Note: callbacks are registered BEFORE `session.start()` because `session.start()` is blocking — it only returns when the session ends, by which time the disconnect event may have already fired.
 
 - [ ] **Step 1: Implement disconnect callback**
 
@@ -1031,4 +1011,4 @@ git commit -m "feat: add call log list and stats dashboard pages"
 2. Make a test call through the Flutter app
 3. Check `/admin/#/call-logs` — should see the call record
 4. Check `/admin/#/stats` — should see charts with data
-5. Worker disconnect should mark the call as completed
+5. User hangs up → call log immediately shows "已完成" (participant_disconnected event, not room-level disconnect)

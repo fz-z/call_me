@@ -12,7 +12,7 @@ POST /api/call/token
         │
     LiveKit 通话中
         │
-Agent Worker disconnect
+Agent Worker participant_disconnected
   └── PATCH /api/admin/call-logs/{id}/end (status=completed, duration_seconds=X)
 ```
 
@@ -86,7 +86,8 @@ CREATE TABLE IF NOT EXISTS call_logs (
 ## Agent Worker（agent.py）
 
 - agent_config 新增 `call_log_id` 字段
-- room disconnect 时调用 `PATCH /api/admin/call-logs/{call_log_id}/end`，传入时长
+- room 的 participant_disconnected 事件触发时调用 `PATCH /api/admin/call-logs/{call_log_id}/end`，传入时长
+- 使用 `_call_ended` 布尔值防止重复回调（participant_disconnected 和 disconnected 双监听）
 - 回调失败只记 log，不影响其他逻辑
 - `API_BASE_URL` 环境变量指向 API 内网地址（docker compose 中为 `http://api:8000`）
 - docker-compose.yml agent 服务需新增环境变量 `API_BASE_URL=http://api:8000`
@@ -125,6 +126,6 @@ cd web-admin && npm install chart.js vue-chartjs
 2. models.py — 新增 CallLogEnd、CallLogOut、StatsOverview 等 schema
 3. call.py — Token 端点写入 call_log + 回调端点
 4. admin.py — call-logs 列表 + 4 个 stats 端点
-5. agent.py — 读取 call_log_id，disconnect 回调
+5. agent.py — 读取 call_log_id，participant_disconnected + disconnected 双事件回调
 6. 前端：CallLogListView.vue + StatsView.vue + 路由 + 导航
 7. API 测试
