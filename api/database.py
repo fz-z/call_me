@@ -314,6 +314,20 @@ def init_db():
                     conn.execute("UPDATE tts_configs SET api_key_id = ? WHERE id = ?",
                                  (api_key_ids[key_name], tc["id"]))
 
+        # Migration: call_logs table for call history and statistics
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS call_logs (
+                id TEXT PRIMARY KEY,
+                agent_id TEXT NOT NULL REFERENCES agents(id),
+                caller_user_id TEXT NOT NULL REFERENCES users(id),
+                room_name TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                ended_at TEXT,
+                duration_seconds INTEGER,
+                status TEXT NOT NULL DEFAULT 'running'
+            )
+        """)
+
         conn.commit()
     finally:
         conn.close()
