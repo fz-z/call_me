@@ -1,12 +1,13 @@
 import os
 import uuid
 import json
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from livekit import api as lk_api
 
 from database import _sync_conn
-from models import TokenRequest, TokenResponse
+from models import TokenRequest, TokenResponse, CallLogEndRequest
 from auth import get_current_user
 
 router = APIRouter(prefix="/api/call", tags=["call"])
@@ -35,6 +36,16 @@ def get_call_token(body: TokenRequest, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=403, detail="No permission to use this agent")
 
         room_name = f"call_{uuid.uuid4().hex[:12]}"
+
+        # Record call start
+        call_log_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        db.execute(
+            "INSERT INTO call_logs (id, agent_id, caller_user_id, room_name, started_at, status) VALUES (?, ?, ?, ?, ?, ?)",
+            (call_log_id, body.agent_id, user["id"], room_name, now, "running"),
+        )
+        db.commit()
+
         # Fetch model_config (use agent's or fallback to first available in DB)
         model_config = None
         mc_id = agent_row["model_config_id"]
@@ -95,6 +106,7 @@ def get_call_token(body: TokenRequest, user: dict = Depends(get_current_user)):
             "voice_id": voice_id,
             "model_config": model_config,
             "tts_config": tts_config,
+            "call_log_id": call_log_id,
         })
 
         token = lk_api.AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET) \
@@ -108,3 +120,19 @@ def get_call_token(body: TokenRequest, user: dict = Depends(get_current_user)):
         return TokenResponse(token=token, room_url=ws_url)
     finally:
         db.close()
+
+
+@router.patch("/admin/call-logs/{call_log_id}/end", status_code=204)
+def end_call_log(call_log_id: str, body: CallLogEndRequest):
+    """Worker callback: mark a call log as ended. No auth (internal call from agent worker)."""
+    db = _sync_conn()
+    try:
+        ended_at = datetime.now(timezone.utc).isoformat()
+        db.execute(
+            "UPDATE call_logs SET status = ?, ended_at = ?, duration_seconds = ? WHERE id = ?",
+            (body.status, ended_at, body.duration_seconds, call_log_id),
+        )
+        db.commit()
+    finally:
+        db.close()
+    return None
