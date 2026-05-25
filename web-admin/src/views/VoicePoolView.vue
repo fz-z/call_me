@@ -14,7 +14,7 @@
       <tbody>
         <tr v-for="v in voices" :key="v.id">
           <td>{{ v.name }}</td>
-          <td style="color:#4a90d9;font-size:11px">{{ v.voice_id?.substring(0, 30) }}{{ v.voice_id?.length > 30 ? '...' : '' }}</td>
+          <td style="color:#4a90d9;font-size:11px;max-width:240px;word-break:break-all" :title="v.voice_id">{{ v.voice_id }}</td>
           <td><span class="tag" :style="v.type==='builtin'?'':'background:#3d2d00'">{{ v.type === 'builtin' ? '内置' : '克隆' }}</span></td>
           <td>
             <span v-for="tc in v._ttsConfigs" :key="tc.id" class="tag" style="background:#1a3a5c">{{ tc.name }}</span>
