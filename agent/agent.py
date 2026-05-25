@@ -2,6 +2,8 @@ import asyncio
 import json
 import logging
 import os
+import time
+import urllib.request
 
 from dotenv import load_dotenv
 from livekit import rtc
@@ -68,6 +70,7 @@ async def entrypoint(ctx: JobContext):
 
     # Connect first, then wait for user participant to join with agent_config
     await ctx.connect()
+    started_at = time.time()
 
     agent_config_str = None
     # Poll for up to 15s waiting for a participant with agent_config
@@ -85,11 +88,13 @@ async def entrypoint(ctx: JobContext):
     if not agent_config_str:
         logger.warning("No agent_config in participant attributes, using defaults")
         system_prompt = os.getenv("DEFAULT_SYSTEM_PROMPT", "你是一位贴心的语音智能助手。")
+        call_log_id = None
         voice_id = None
     else:
         config = json.loads(agent_config_str)
         system_prompt = config.get("system_prompt", os.getenv("DEFAULT_SYSTEM_PROMPT", "你是一位贴心的语音智能助手。"))
         voice_id = config.get("voice_id")
+        call_log_id = config.get("call_log_id")
 
     # LLM — use model_config from token if available, otherwise .env default
     default_llm_temp = float(os.getenv("DEFAULT_LLM_TEMPERATURE", "0.7"))
@@ -192,6 +197,22 @@ async def entrypoint(ctx: JobContext):
             ),
         ),
     )
+
+    # Register disconnect callback to record call duration
+    if call_log_id:
+        def _on_disconnect():
+            duration = int(time.time() - started_at)
+            api_base = os.getenv("API_BASE_URL", "http://api:8000")
+            url = f"{api_base}/api/call/admin/call-logs/{call_log_id}/end"
+            try:
+                data = json.dumps({"status": "completed", "duration_seconds": duration}).encode()
+                req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="PATCH")
+                urllib.request.urlopen(req, timeout=5)
+                logger.info(f"Call log {call_log_id} ended, duration={duration}s")
+            except Exception as e:
+                logger.warning(f"Failed to update call_log {call_log_id}: {e}")
+
+        ctx.room.on("disconnected", _on_disconnect)
 
     # Agent speaks first: generate a short greeting via LLM
     from livekit.agents.llm import ChatContext, ChatMessage

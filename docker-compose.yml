@@ -10,6 +10,8 @@ services:
   agent:
     build: ./agent
     env_file: .env
+    environment:
+      - API_BASE_URL=http://api:8000
 
 volumes:
   api_data:
