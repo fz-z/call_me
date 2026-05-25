@@ -52,18 +52,15 @@
     <div v-if="showPipelineEdit" class="modal-overlay" @click.self="showPipelineEdit = false">
       <form class="modal" @submit.prevent="savePipeline" style="min-width:420px">
         <h3>编辑 Pipeline 配置</h3>
-        <label style="display:block;margin:12px 0 4px;color:#888;font-size:13px">TTS 模型</label>
-        <select v-model="pipelineForm.tts_config_id" @change="onTtsChange">
-          <option value="">系统默认</option>
-          <option v-for="t in ttsConfigs" :key="t.id" :value="t.id">{{ t.name }} ({{ t.provider }}/{{ t.model }})</option>
-        </select>
         <label style="display:block;margin:12px 0 4px;color:#888;font-size:13px">音色</label>
-        <p v-if="!filteredVoices.length && pipelineForm.tts_config_id" style="color:#888;font-size:11px;margin-bottom:4px">
-          {{ loadingFilteredVoices ? '加载中...' : '此 TTS 模型暂无关联声音' }}
-        </p>
-        <select v-model="pipelineForm.voice_pool_id">
+        <select v-model="pipelineForm.voice_pool_id" @change="onVoiceChange">
+          <option value="">选择音色...</option>
+          <option v-for="v in voices" :key="v.id" :value="v.id">{{ v.name }} ({{ v.type === 'builtin' ? '内置' : '克隆' }})</option>
+        </select>
+        <label style="display:block;margin:12px 0 4px;color:#888;font-size:13px">TTS 模型 <span style="font-size:11px;color:#888">（自动匹配音色关联的模型）</span></label>
+        <select v-model="pipelineForm.tts_config_id">
           <option value="">系统默认</option>
-          <option v-for="v in filteredVoices" :key="v.id" :value="v.id">{{ v.name }} ({{ v.type === 'builtin' ? '内置' : '克隆' }})</option>
+          <option v-for="t in voiceTtsOptions" :key="t.id" :value="t.id">{{ t.name }} ({{ t.provider }}/{{ t.model }})</option>
         </select>
         <label style="display:block;margin:12px 0 4px;color:#888;font-size:13px">LLM 模型</label>
         <select v-model="pipelineForm.model_config_id">
@@ -111,8 +108,8 @@ const editPromptText = ref('');
 const editPromptLoading = ref(false);
 const editPromptError = ref('');
 const voices = ref([]);
-const filteredVoices = ref([]);
-const loadingFilteredVoices = ref(false);
+const voiceTtsMap = ref({});  // voice_id → [tts_configs]
+const voiceTtsOptions = ref([]);
 const showPipelineEdit = ref(false);
 const pipelineForm = ref({ voice_pool_id: null, model_config_id: null, tts_config_id: null });
 const pipelineEditLoading = ref(false);
@@ -134,6 +131,16 @@ async function load() {
   modelConfigs.value = r4.data;
   ttsConfigs.value = r5.data;
   voices.value = r6.data;
+
+  // Load voice → TTS mappings
+  for (const v of voices.value) {
+    try {
+      const ttsRes = await api.get(`/admin/voices/${v.id}/tts-configs`);
+      if (ttsRes.data.length > 0) {
+        voiceTtsMap.value[v.id] = ttsRes.data;
+      }
+    } catch (_) {}
+  }
 }
 
 function getConfigName(id) {
@@ -156,34 +163,22 @@ function getVoiceName(id) {
   return v ? `${v.name} (${v.voice_id?.substring(0, 20)}...)` : id.substring(0, 8);
 }
 
-async function loadFilteredVoices(ttsConfigId) {
-  if (!ttsConfigId) {
-    filteredVoices.value = [];
-    return;
-  }
-  loadingFilteredVoices.value = true;
-  try {
-    const r = await api.get(`/admin/voices?tts_config_id=${ttsConfigId}`);
-    filteredVoices.value = r.data;
-  } catch (_) {
-    filteredVoices.value = [];
-  } finally {
-    loadingFilteredVoices.value = false;
-  }
+function onVoiceChange() {
+  const ttsConfigs = voiceTtsMap.value[pipelineForm.value.voice_pool_id] || [];
+  voiceTtsOptions.value = ttsConfigs;
+  // Auto-select first linked TTS
+  pipelineForm.value.tts_config_id = ttsConfigs.length > 0 ? ttsConfigs[0].id : '';
 }
 
-async function onTtsChange() {
-  pipelineForm.value.voice_pool_id = '';
-  await loadFilteredVoices(pipelineForm.value.tts_config_id);
-}
-
-async function startEditPipeline() {
+function startEditPipeline() {
   pipelineForm.value = {
     voice_pool_id: agent.value.voice_pool_id || '',
     model_config_id: agent.value.model_config_id || '',
     tts_config_id: agent.value.tts_config_id || '',
   };
-  await loadFilteredVoices(pipelineForm.value.tts_config_id);
+  // Pre-populate TTS options for current voice
+  const ttsConfigs = voiceTtsMap.value[agent.value.voice_pool_id] || [];
+  voiceTtsOptions.value = ttsConfigs;
   pipelineEditError.value = '';
   showPipelineEdit.value = true;
 }
