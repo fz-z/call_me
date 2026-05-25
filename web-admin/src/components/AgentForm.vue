@@ -17,7 +17,7 @@
         </p>
         <div class="modal-actions">
           <button class="btn-ghost" @click="$emit('close')">取消</button>
-          <button class="btn btn-primary" @click="step = 2">下一步</button>
+          <button class="btn btn-primary" @click="step = 2" :disabled="!selectedTtsConfigId">下一步</button>
         </div>
       </div>
 
@@ -127,8 +127,6 @@ onMounted(async () => {
     // If editing with a pre-selected TTS config, load cascaded voices
     if (selectedTtsConfigId.value) {
       filterVoices();
-    } else {
-      filteredVoices.value = allVoices.value;
     }
   } catch (_) {}
 });
@@ -144,7 +142,7 @@ watch(selectedTtsConfigId, async (newVal) => {
 
 async function filterVoices() {
   if (!selectedTtsConfigId.value) {
-    filteredVoices.value = allVoices.value;
+    filteredVoices.value = [];
     return;
   }
   loadingVoices.value = true;
