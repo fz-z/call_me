@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from database import _sync_conn
-from models import UserOut, AgentOut
+from models import UserOut, AgentOut, CallLogOut, CallLogListResponse, StatsOverview, StatsTrendItem, StatsTopItem
 from auth import require_admin
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -97,5 +97,131 @@ def list_agent_copies(agent_id: str, admin: dict = Depends(require_admin)):
             (agent_id,),
         ).fetchall()
         return [AgentOut(**dict(r)) for r in rows]
+    finally:
+        db.close()
+
+
+@router.get("/call-logs", response_model=CallLogListResponse)
+def list_call_logs(
+    agent_id: str | None = None,
+    user_id: str | None = None,
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    admin: dict = Depends(require_admin),
+):
+    db = _sync_conn()
+    try:
+        where_clauses = []
+        params = []
+
+        if agent_id:
+            where_clauses.append("cl.agent_id = ?")
+            params.append(agent_id)
+        if user_id:
+            where_clauses.append("cl.caller_user_id = ?")
+            params.append(user_id)
+        if status:
+            where_clauses.append("cl.status = ?")
+            params.append(status)
+
+        where = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+
+        total_row = db.execute(
+            f"SELECT COUNT(*) as c FROM call_logs cl {where}", params
+        ).fetchone()
+        total = total_row["c"]
+
+        offset = (page - 1) * page_size
+        rows = db.execute(
+            f"""SELECT cl.*, a.alias as agent_alias, u.username as caller_username
+                FROM call_logs cl
+                JOIN agents a ON cl.agent_id = a.id
+                JOIN users u ON cl.caller_user_id = u.id
+                {where}
+                ORDER BY cl.started_at DESC
+                LIMIT ? OFFSET ?""",
+            params + [page_size, offset],
+        ).fetchall()
+
+        items = [CallLogOut(**dict(r)) for r in rows]
+        return CallLogListResponse(items=items, total=total, page=page, page_size=page_size)
+    finally:
+        db.close()
+
+
+@router.get("/stats/overview", response_model=StatsOverview)
+def stats_overview(admin: dict = Depends(require_admin)):
+    db = _sync_conn()
+    try:
+        total = db.execute("SELECT COUNT(*) as c FROM call_logs").fetchone()["c"]
+        today = db.execute(
+            "SELECT COUNT(*) as c FROM call_logs WHERE date(started_at) = date('now')"
+        ).fetchone()["c"]
+        total_dur = db.execute(
+            "SELECT COALESCE(SUM(duration_seconds), 0) as s FROM call_logs WHERE status = 'completed'"
+        ).fetchone()["s"]
+        active = db.execute(
+            "SELECT COUNT(DISTINCT caller_user_id) as c FROM call_logs"
+        ).fetchone()["c"]
+        return StatsOverview(
+            total_calls=total,
+            today_calls=today,
+            total_duration_seconds=total_dur,
+            active_users=active,
+        )
+    finally:
+        db.close()
+
+
+@router.get("/stats/trend", response_model=list[StatsTrendItem])
+def stats_trend(days: int = 30, admin: dict = Depends(require_admin)):
+    db = _sync_conn()
+    try:
+        rows = db.execute(
+            """SELECT date(started_at) as date, COUNT(*) as count
+               FROM call_logs
+               WHERE started_at >= date('now', ?)
+               GROUP BY date(started_at)
+               ORDER BY date ASC""",
+            (f"-{days} days",),
+        ).fetchall()
+        return [StatsTrendItem(**dict(r)) for r in rows]
+    finally:
+        db.close()
+
+
+@router.get("/stats/top-agents", response_model=list[StatsTopItem])
+def stats_top_agents(limit: int = 10, admin: dict = Depends(require_admin)):
+    db = _sync_conn()
+    try:
+        rows = db.execute(
+            """SELECT cl.agent_id as id, a.alias as name, COUNT(*) as count
+               FROM call_logs cl
+               JOIN agents a ON cl.agent_id = a.id
+               GROUP BY cl.agent_id
+               ORDER BY count DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [StatsTopItem(**dict(r)) for r in rows]
+    finally:
+        db.close()
+
+
+@router.get("/stats/top-users", response_model=list[StatsTopItem])
+def stats_top_users(limit: int = 10, admin: dict = Depends(require_admin)):
+    db = _sync_conn()
+    try:
+        rows = db.execute(
+            """SELECT cl.caller_user_id as id, u.username as name, COUNT(*) as count
+               FROM call_logs cl
+               JOIN users u ON cl.caller_user_id = u.id
+               GROUP BY cl.caller_user_id
+               ORDER BY count DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [StatsTopItem(**dict(r)) for r in rows]
     finally:
         db.close()
