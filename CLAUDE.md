@@ -122,3 +122,4 @@ web-admin/src/
 - Agent creation is JSON body (no multipart). `voice_pool_id` is required.
 - FK validation on create_agent: voice_pool_id, tts_config_id, model_config_id checked before INSERT.
 - `.env` is gitignored; `.env.example` is template with all configurable defaults documented.
+- When implementation details change in a way that contradicts existing spec/plan docs, update the docs too. Use the same commit. Don't update docs for trivial fixes (typos, style) — only when behavior, architecture, or event flow described in docs is no longer accurate.
