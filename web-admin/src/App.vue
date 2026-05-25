@@ -12,6 +12,8 @@
         <router-link to="/tts-configs">TTS 模型</router-link>
         <router-link to="/voices">声音库</router-link>
         <router-link to="/api-keys">API Keys</router-link>
+        <router-link to="/call-logs">通话记录</router-link>
+        <router-link to="/stats">数据统计</router-link>
       </nav>
       <div class="sidebar-footer">
         <span>{{ username }}</span>

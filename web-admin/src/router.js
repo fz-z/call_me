@@ -8,6 +8,8 @@ import ModelConfigListView from './views/ModelConfigListView.vue';
 import VoicePoolView from './views/VoicePoolView.vue';
 import TtsConfigListView from './views/TtsConfigListView.vue';
 import ApiKeyListView from './views/ApiKeyListView.vue';
+import CallLogListView from './views/CallLogListView.vue';
+import StatsView from './views/StatsView.vue';
 
 const routes = [
   { path: '/login', component: LoginView },
@@ -20,6 +22,8 @@ const routes = [
   { path: '/voices', component: VoicePoolView },
   { path: '/tts-configs', component: TtsConfigListView },
   { path: '/api-keys', component: ApiKeyListView },
+  { path: '/call-logs', component: CallLogListView },
+  { path: '/stats', component: StatsView },
 ];
 
 const router = createRouter({ history: createWebHashHistory(), routes });
