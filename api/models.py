@@ -199,3 +199,46 @@ class SipStatusResponse(BaseModel):
     bound_number: Optional[str] = None
     trunk_id: Optional[str] = None
     status: str = "unbound"
+
+
+class CallLogOut(BaseModel):
+    id: str
+    agent_id: str
+    agent_alias: str
+    caller_user_id: str
+    caller_username: str
+    room_name: str
+    started_at: str
+    ended_at: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    status: str
+
+
+class CallLogEndRequest(BaseModel):
+    status: str = "completed"
+    duration_seconds: int
+
+
+class CallLogListResponse(BaseModel):
+    items: list[CallLogOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class StatsOverview(BaseModel):
+    total_calls: int
+    today_calls: int
+    total_duration_seconds: int
+    active_users: int
+
+
+class StatsTrendItem(BaseModel):
+    date: str
+    count: int
+
+
+class StatsTopItem(BaseModel):
+    id: str
+    name: str
+    count: int
