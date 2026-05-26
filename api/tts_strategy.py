@@ -140,6 +140,46 @@ class QwenRealtimeStrategy(TtsStrategy):
         return base64.b64encode(wav_data).decode("utf-8"), "audio/wav"
 
 
+class VolcengineTtsStrategy(TtsStrategy):
+    """Volcengine TTS synthesis via HTTP SSE unidirectional endpoint."""
+
+    TTS_URL = "https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse"
+
+    async def synthesize(self, tts_row, voice_id: str, text: str) -> tuple[str, str]:
+        import uuid as _uuid
+
+        api_key = tts_row["resolved_key"] or tts_row["api_key"]
+        resource_id = os.environ.get("VOLCENGINE_RESOURCE_ID", "seed-icl-2.0")
+
+        headers = {
+            "Content-Type": "application/json",
+            "X-Api-Key": api_key,
+            "X-Api-Request-Id": str(_uuid.uuid4()),
+            "X-Api-Resource-Id": resource_id,
+        }
+
+        body = {
+            "speaker_id": voice_id,
+            "text": text,
+        }
+
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(self.TTS_URL, json=body, headers=headers) as resp:
+                raw = await resp.read()
+                if resp.status != 200:
+                    snippet = raw[:500].decode("utf-8", errors="replace")
+                    raise RuntimeError(f"Volcengine TTS failed HTTP {resp.status}: {snippet}")
+
+                # SSE response: extract audio data from event stream
+                # The response is text/event-stream with base64 audio chunks
+                audio_b64 = _parse_volcengine_sse(raw.decode("utf-8", errors="replace"))
+                if not audio_b64:
+                    raise RuntimeError("No audio data in Volcengine TTS response")
+
+                return audio_b64, _detect_volc_audio_mime(audio_b64)
+
+
 class CosyVoiceStrategy(TtsStrategy):
     """cosyvoice models (WebSocket via dashscope tts_v2 SDK)."""
 
@@ -175,9 +215,44 @@ def get_tts_strategy(model: str) -> TtsStrategy:
     m = (model or "").lower()
     if m.startswith("cosyvoice"):
         return CosyVoiceStrategy()
+    if m.startswith("volcengine") or m.startswith("seed-icl") or m.startswith("bytedance"):
+        return VolcengineTtsStrategy()
     if "realtime" in m:
         return QwenRealtimeStrategy()
     return QwenHttpStrategy()
+
+
+def _parse_volcengine_sse(text: str) -> str | None:
+    """Parse Volcengine SSE response to extract base64 audio data."""
+    audio_parts: list[str] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("data:"):
+            data = line[5:].strip()
+            if data and data != "[DONE]":
+                try:
+                    obj = json.loads(data)
+                    audio_chunk = obj.get("audio") or obj.get("data") or ""
+                    if audio_chunk:
+                        audio_parts.append(audio_chunk)
+                except json.JSONDecodeError:
+                    pass
+    return "".join(audio_parts) if audio_parts else None
+
+
+def _detect_volc_audio_mime(audio_b64: str) -> str:
+    """Detect audio format from base64 header bytes."""
+    try:
+        header = base64.b64decode(audio_b64[:20])
+        if header[:4] == b"RIFF":
+            return "audio/wav"
+        if header[:3] == b"ID3" or header[:2] == b"\xff\xfb":
+            return "audio/mpeg"
+        if header[:4] == b"OggS":
+            return "audio/ogg"
+    except Exception:
+        pass
+    return "audio/wav"
 
 
 def _extract_audio_b64(obj: dict) -> str | None:

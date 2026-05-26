@@ -47,10 +47,21 @@ def create_agent(
 
         agent_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
-        db.execute(
-            "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, voice_pool_id, source_agent_id, model_config_id, tts_config_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (agent_id, body.alias, voice["voice_id"], body.system_prompt, user["id"], body.voice_pool_id, None, body.model_config_id, body.tts_config_id, now),
-        )
+        # Ensure empty strings become None for FK columns
+        tts_id = body.tts_config_id or None
+        mc_id = body.model_config_id or None
+        try:
+            db.execute(
+                "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, voice_pool_id, source_agent_id, model_config_id, tts_config_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (agent_id, body.alias, voice["voice_id"], body.system_prompt, user["id"], body.voice_pool_id, None, mc_id, tts_id, now),
+            )
+        except Exception:
+            import logging
+            logging.getLogger("api").error(
+                "FK constraint failed — voice_pool_id=%s tts_config_id=%s model_config_id=%s owner_id=%s",
+                body.voice_pool_id, tts_id, mc_id, user["id"],
+            )
+            raise
         db.commit()
         return AgentOut(
             id=agent_id, alias=body.alias, voice_id=voice["voice_id"],

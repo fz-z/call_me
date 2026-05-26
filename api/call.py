@@ -1,6 +1,7 @@
 import os
 import uuid
 import json
+import asyncio as _asyncio
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,9 +13,11 @@ from auth import get_current_user
 
 router = APIRouter(prefix="/api/call", tags=["call"])
 
-LIVEKIT_URL = os.environ.get("LIVEKIT_URL", "")
 LIVEKIT_API_KEY = os.environ.get("LIVEKIT_API_KEY", "")
 LIVEKIT_API_SECRET = os.environ.get("LIVEKIT_API_SECRET", "")
+
+# Keep LIVEKIT_URL for token generation (ws_url)
+LIVEKIT_URL = os.environ.get("LIVEKIT_URL", "")
 
 
 def _user_can_access(db, agent_id: str, user_id: str, role: str) -> bool:

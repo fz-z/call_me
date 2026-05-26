@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart' hide Agent;
 import '../models/agent.dart';
 
+enum CallState { connecting, ringing, active }
+
 class CallScreen extends StatefulWidget {
   final VoiceAgent agent;
   final String token;
@@ -16,8 +18,9 @@ class CallScreen extends StatefulWidget {
 class _CallScreenState extends State<CallScreen> {
   Room? _room;
   LocalAudioTrack? _localTrack;
-  bool _connecting = true;
+  CallState _state = CallState.connecting;
   final _duration = Stopwatch();
+  Function()? _cancelTrackSub;
 
   @override
   void initState() {
@@ -27,21 +30,33 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _connect() async {
     final room = Room();
-    room.events.listen((event) {
-      if (mounted) setState(() => _connecting = false);
+
+    // Listen for the agent's first audio — once received, transition to active
+    _cancelTrackSub = room.events.listen((event) {
+      if (event is TrackSubscribedEvent) {
+        if (event.publication.kind == TrackType.AUDIO &&
+            event.participant is RemoteParticipant) {
+          _cancelTrackSub?.call();
+          _cancelTrackSub = null;
+          if (_state == CallState.ringing && mounted) {
+            setState(() {
+              _state = CallState.active;
+              _duration.start();
+            });
+          }
+        }
+      }
     });
 
     try {
       await room.connect(widget.roomUrl, widget.token);
 
-      // Publish local microphone so the agent can hear the user
+      // Publish local microphone
       try {
         final track = await LocalAudioTrack.create();
         await room.localParticipant!.publishAudioTrack(track);
         _localTrack = track;
-      } catch (e) {
-        // Microphone might not be available (e.g., web permissions)
-        debugPrint('Failed to publish microphone: $e');
+      } catch (_) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Microphone unavailable. Agent cannot hear you.')),
@@ -49,10 +64,9 @@ class _CallScreenState extends State<CallScreen> {
         }
       }
 
-      _duration.start();
       setState(() {
         _room = room;
-        _connecting = false;
+        _state = CallState.ringing;
       });
     } catch (e) {
       if (mounted) {
@@ -71,6 +85,7 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    _cancelTrackSub?.call();
     _localTrack?.stop();
     _room?.dispose();
     super.dispose();
@@ -86,23 +101,31 @@ class _CallScreenState extends State<CallScreen> {
           children: [
             Text(widget.agent.alias, style: const TextStyle(color: Colors.white, fontSize: 20)),
             const SizedBox(height: 16),
-            _connecting
-                ? const CircularProgressIndicator(color: Colors.white)
-                : const Icon(Icons.mic, size: 64, color: Colors.green),
-            const SizedBox(height: 16),
-            StreamBuilder(
-              stream: Stream.periodic(const Duration(seconds: 1)),
-              builder: (_, __) => Text(
-                '${_duration.elapsed.inMinutes}:${(_duration.elapsed.inSeconds % 60).toString().padLeft(2, '0')}',
-                style: const TextStyle(color: Colors.white70, fontSize: 24),
+            if (_state == CallState.connecting) ...[
+              const CircularProgressIndicator(color: Colors.white),
+              const SizedBox(height: 12),
+              const Text('正在连接...', style: TextStyle(color: Colors.white70, fontSize: 14)),
+            ] else if (_state == CallState.ringing) ...[
+              const CircularProgressIndicator(color: Colors.white),
+              const SizedBox(height: 12),
+              const Text('等待对方接听...', style: TextStyle(color: Colors.white70, fontSize: 14)),
+            ] else ...[
+              const Icon(Icons.mic, size: 64, color: Colors.green),
+              const SizedBox(height: 12),
+              StreamBuilder(
+                stream: Stream.periodic(const Duration(seconds: 1)),
+                builder: (_, __) => Text(
+                  '${_duration.elapsed.inMinutes}:${(_duration.elapsed.inSeconds % 60).toString().padLeft(2, '0')}',
+                  style: const TextStyle(color: Colors.white70, fontSize: 24),
+                ),
               ),
-            ),
-            const SizedBox(height: 48),
-            FloatingActionButton(
-              onPressed: _hangup,
-              backgroundColor: Colors.red,
-              child: const Icon(Icons.call_end, color: Colors.white, size: 32),
-            ),
+              const SizedBox(height: 36),
+              FloatingActionButton(
+                onPressed: _hangup,
+                backgroundColor: Colors.red,
+                child: const Icon(Icons.call_end, color: Colors.white, size: 32),
+              ),
+            ],
           ],
         ),
       ),

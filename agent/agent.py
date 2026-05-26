@@ -68,33 +68,52 @@ server.setup_fnc = prewarm
 async def entrypoint(ctx: JobContext):
     ctx.log_context_fields = {"room": ctx.room.name}
 
-    # Connect first, then wait for user participant to join with agent_config
-    await ctx.connect()
-    started_at = time.time()
+    t0 = time.time()
+    connect_task = None
 
-    agent_config_str = None
-    # Poll for up to 15s waiting for a participant with agent_config
-    for _ in range(30):
-        for p in ctx.room.remote_participants.values():
-            attrs = p.attributes
-            if attrs and "agent_config" in attrs:
-                agent_config_str = attrs["agent_config"]
-                break
-        if agent_config_str:
-            break
-        await asyncio.sleep(0.5)
-
+    # Read agent_config from dispatch metadata (fast path) or fall back to polling
+    agent_config_str = ctx.job.metadata or None
     config = {}
-    if not agent_config_str:
-        logger.warning("No agent_config in participant attributes, using defaults")
-        system_prompt = os.getenv("DEFAULT_SYSTEM_PROMPT", "你是一位贴心的语音智能助手。")
-        call_log_id = None
-        voice_id = None
-    else:
+
+    if agent_config_str:
+        t1 = time.time()
+        logger.info(f"[timing] got config from metadata at {t1 - t0:.2f}s, connecting in parallel")
         config = json.loads(agent_config_str)
         system_prompt = config.get("system_prompt", os.getenv("DEFAULT_SYSTEM_PROMPT", "你是一位贴心的语音智能助手。"))
         voice_id = config.get("voice_id")
         call_log_id = config.get("call_log_id")
+        # Connect to room — can run concurrently with LLM/STT/TTS init below
+        connect_task = asyncio.create_task(ctx.connect())
+    else:
+        # Fallback: connect first, then poll user attributes
+        await ctx.connect()
+        t1 = time.time()
+        logger.info(f"[timing] ctx.connect (fallback): {t1 - t0:.2f}s")
+        # Poll for up to 15s
+        for _ in range(30):
+            for p in ctx.room.remote_participants.values():
+                attrs = p.attributes
+                if attrs and "agent_config" in attrs:
+                    agent_config_str = attrs["agent_config"]
+                    break
+            if agent_config_str:
+                break
+            await asyncio.sleep(0.5)
+        t2 = time.time()
+        logger.info(f"[timing] agent_config poll: {t2 - t1:.2f}s (total {t2 - t0:.2f}s)")
+        if not agent_config_str:
+            logger.warning("No agent_config in participant attributes, using defaults")
+            system_prompt = os.getenv("DEFAULT_SYSTEM_PROMPT", "你是一位贴心的语音智能助手。")
+            call_log_id = None
+            voice_id = None
+        else:
+            config = json.loads(agent_config_str)
+            system_prompt = config.get("system_prompt", os.getenv("DEFAULT_SYSTEM_PROMPT", "你是一位贴心的语音智能助手。"))
+            voice_id = config.get("voice_id")
+            call_log_id = config.get("call_log_id")
+
+    # Global constraint: keep responses short for voice conversation
+    system_prompt = system_prompt.strip() + " 请用口语简洁回答，控制在2-3句话以内。"
 
     # LLM — use model_config from token if available, otherwise .env default
     default_llm_temp = float(os.getenv("DEFAULT_LLM_TEMPERATURE", "0.7"))
@@ -168,6 +187,13 @@ async def entrypoint(ctx: JobContext):
     else:
         tts_provider = tc_provider
 
+    # If using metadata path, await the connect task now (parallelized with LLM/STT/TTS init)
+    if connect_task is not None:
+        await connect_task
+        connect_task = None
+        t_connect = time.time()
+        logger.info(f"[timing] ctx.connect (parallel): {t_connect - t0:.2f}s total")
+
     logger.info("pipeline config", extra={
         "room": ctx.room.name,
         "agent_config": _sanitize_agent_config_for_log(agent_config_str),
@@ -175,6 +201,8 @@ async def entrypoint(ctx: JobContext):
         "tts_provider": tts_provider,
     })
     logger.info(f"TTS created: model={tts.model}, voice_id={voice_id}, is_realtime={tts._is_realtime_model()}")
+    t_init = time.time()
+    logger.info(f"[timing] LLM/STT/TTS init + connect: {t_init - t0:.2f}s total")
 
     session = AgentSession(
         stt=stt,
@@ -191,6 +219,7 @@ async def entrypoint(ctx: JobContext):
     # for the room-level "disconnected" event which can be delayed.
     if call_log_id:
         _call_ended = False
+        started_at = time.time()
 
         def _end_call_log():
             nonlocal _call_ended
@@ -229,6 +258,8 @@ async def entrypoint(ctx: JobContext):
             ),
         ),
     )
+    t_session = time.time()
+    logger.info(f"[timing] session.start: {t_session - t_init:.2f}s (total {t_session - t0:.2f}s)")
 
     # Agent speaks first: generate a short greeting via LLM
     from livekit.agents.llm import ChatContext, ChatMessage
@@ -242,17 +273,22 @@ async def entrypoint(ctx: JobContext):
         greeting_ctx = ChatContext()
         greeting_ctx.add_message(role="system", content=system_prompt)
         greeting_ctx.add_message(role="user", content=greeting_prompt)
+        t_llm_start = time.time()
         greeting_stream = llm.chat(chat_ctx=greeting_ctx)
         greeting_text = ""
         async for chunk in greeting_stream:
             if chunk.delta and chunk.delta.content:
                 greeting_text += chunk.delta.content
         greeting_text = greeting_text.strip()
+        t_greet = time.time()
+        logger.info(f"[timing] LLM greeting: {t_greet - t_llm_start:.2f}s (total {t_greet - t0:.2f}s)")
         if greeting_text:
             logger.info(f"Initial greeting: {greeting_text}")
             await session.say(greeting_text, allow_interruptions=False)
         else:
             await session.say("你好，请问有什么可以帮助你的？", allow_interruptions=False)
+        t_speak = time.time()
+        logger.info(f"[timing] TTS speak greeting: {t_speak - t_greet:.2f}s (total {t_speak - t0:.2f}s)")
     except Exception as e:
         logger.warning(f"Failed to generate initial greeting: {e}")
         await session.say("你好，请问有什么可以帮助你的？", allow_interruptions=False)

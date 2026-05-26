@@ -14,10 +14,12 @@ router = APIRouter(prefix="/api/admin/voices", tags=["voices"])
 
 
 def _normalize_provider(provider: str) -> str:
-    """Normalize provider names to canonical form (qwen / deepseek / etc)."""
+    """Normalize provider names to canonical form (qwen / volcengine / deepseek / etc)."""
     p = (provider or "").lower()
     if any(kw in p for kw in ("qwen", "dashscope", "百炼", "bailian", "阿里", "alibaba")):
         return "qwen"
+    if any(kw in p for kw in ("volcengine", "volc", "bytedance", "火山", "字节")):
+        return "qwen"  # uses same DashScope-compatible audition flow
     if "deepseek" in p:
         return "deepseek"
     return p
@@ -68,7 +70,7 @@ async def create_voice(
             db.close()
 
     try:
-        dashscope_voice_id = await enroll_voice(audio_bytes, content_type, api_key, tts_model)
+        dashscope_voice_id = await enroll_voice(audio_bytes, content_type, api_key, tts_model, name)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Voice enrollment failed: {e}")
 
