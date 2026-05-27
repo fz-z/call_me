@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from database import get_db, pwd_context, _sync_conn
-from models import UserRegister, UserLogin, AuthResponse, UserOut
+from models import UserRegister, UserLogin, AuthResponse, UserOut, ChangePassword
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 security = HTTPBearer()
@@ -89,3 +89,21 @@ def login(body: UserLogin):
         )
     finally:
         db.close()
+
+
+@router.put("/change-password", status_code=204)
+def change_password(body: ChangePassword, user: dict = Depends(get_current_user)):
+    db = _sync_conn()
+    try:
+        row = db.execute("SELECT password_hash FROM users WHERE id = ?", (user["id"],)).fetchone()
+        if not row or not pwd_context.verify(body.old_password, row["password_hash"]):
+            raise HTTPException(status_code=400, detail="旧密码错误")
+
+        db.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (pwd_context.hash(body.new_password), user["id"]),
+        )
+        db.commit()
+    finally:
+        db.close()
+    return None
