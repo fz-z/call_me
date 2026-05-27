@@ -22,6 +22,20 @@ class UserLogin(BaseModel):
     password: str
 
 
+class AdminCreateUser(BaseModel):
+    username: str
+    password: str = "aB@12345"
+
+
+class ChangePassword(BaseModel):
+    old_password: str
+    new_password: str
+
+
+class AdminResetPassword(BaseModel):
+    new_password: str = "aB@12345"
+
+
 class AuthResponse(BaseModel):
     token: str
     user: UserOut
