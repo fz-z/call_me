@@ -1,7 +1,10 @@
+import uuid
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 
-from database import _sync_conn
-from models import UserOut, AgentOut, CallLogOut, CallLogListResponse, StatsOverview, StatsTrendItem, StatsTopItem
+from database import _sync_conn, pwd_context
+from models import UserOut, AgentOut, CallLogOut, CallLogListResponse, StatsOverview, StatsTrendItem, StatsTopItem, AdminCreateUser, AdminResetPassword
 from auth import require_admin
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -13,6 +16,32 @@ def list_users(admin: dict = Depends(require_admin)):
     try:
         rows = db.execute("SELECT id, username, role, created_at FROM users ORDER BY created_at").fetchall()
         return [UserOut(**dict(r)) for r in rows]
+    finally:
+        db.close()
+
+
+@router.post("/users", response_model=UserOut, status_code=201)
+def create_user(body: AdminCreateUser, admin: dict = Depends(require_admin)):
+    username = body.username.strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="Username cannot be empty")
+    if len(username) < 2:
+        raise HTTPException(status_code=400, detail="Username must be at least 2 characters")
+
+    db = _sync_conn()
+    try:
+        existing = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+        if existing:
+            raise HTTPException(status_code=409, detail="用户名已存在")
+
+        user_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        db.execute(
+            "INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)",
+            (user_id, username, pwd_context.hash(body.password), "user", now),
+        )
+        db.commit()
+        return UserOut(id=user_id, username=username, role="user", created_at=now)
     finally:
         db.close()
 
@@ -65,6 +94,24 @@ def delete_user(username: str, admin: dict = Depends(require_admin)):
         db.execute("DELETE FROM call_logs WHERE caller_user_id = ?", (user_row["id"],))
         db.execute("DELETE FROM agents WHERE owner_id = ?", (user_row["id"],))
         db.execute("DELETE FROM users WHERE id = ?", (user_row["id"],))
+        db.commit()
+    finally:
+        db.close()
+    return None
+
+
+@router.put("/users/{username}/reset-password", status_code=204)
+def reset_user_password(username: str, body: AdminResetPassword, admin: dict = Depends(require_admin)):
+    db = _sync_conn()
+    try:
+        user_row = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+        if not user_row:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+        db.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (pwd_context.hash(body.new_password), user_row["id"]),
+        )
         db.commit()
     finally:
         db.close()
