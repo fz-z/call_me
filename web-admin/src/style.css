@@ -33,3 +33,9 @@ td { padding: 8px 12px; font-size: 13px; border-bottom: 1px solid #222; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .page-header h2 { font-size: 20px; }
 .back-link { color: #4a90d9; text-decoration: none; font-size: 13px; margin-bottom: 12px; display: inline-block; }
+.modal-subtitle { color: #94a3b8; font-size: 13px; margin: 0 0 12px 0; }
+.btn-primary:hover { background: #3a7bc8; }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.toast { position: fixed; top: 20px; right: 20px; background: #10b981; color: #fff;
+  padding: 10px 20px; border-radius: 6px; font-size: 14px; z-index: 2000;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
