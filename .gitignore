@@ -8,3 +8,6 @@ api/.test_db/
 *.pyc
 .env
 .env.local
+
+# 本地运维笔记（含服务器信息，勿提交）
+OPS.md
