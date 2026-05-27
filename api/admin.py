@@ -57,6 +57,12 @@ def delete_user(username: str, admin: dict = Depends(require_admin)):
         if not user_row:
             raise HTTPException(status_code=404, detail="User not found")
 
+        # Delete call logs for this user's agents first (FK constraint)
+        agent_rows = db.execute("SELECT id FROM agents WHERE owner_id = ?", (user_row["id"],)).fetchall()
+        for ag in agent_rows:
+            db.execute("DELETE FROM call_logs WHERE agent_id = ?", (ag["id"],))
+        # Also delete call logs where this user is the caller
+        db.execute("DELETE FROM call_logs WHERE caller_user_id = ?", (user_row["id"],))
         db.execute("DELETE FROM agents WHERE owner_id = ?", (user_row["id"],))
         db.execute("DELETE FROM users WHERE id = ?", (user_row["id"],))
         db.commit()
