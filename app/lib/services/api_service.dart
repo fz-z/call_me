@@ -11,7 +11,8 @@ class ApiService {
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
-    final defaultUrl = kIsWeb ? 'http://localhost:8000' : 'http://localhost:8000';
+    // Auto-detect API URL from current page origin on web
+    final defaultUrl = kIsWeb ? Uri.base.origin : 'http://localhost:8000';
     _baseUrl = prefs.getString('server_url') ?? defaultUrl;
     _token = prefs.getString('token');
     final role = prefs.getString('user_role');
