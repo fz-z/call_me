@@ -21,6 +21,8 @@ class _CallScreenState extends State<CallScreen> {
   CallState _state = CallState.connecting;
   final _duration = Stopwatch();
   Function()? _cancelTrackSub;
+  Function()? _cancelAgentDisconnectSub;
+  bool _agentEndedCall = false;
 
   @override
   void initState() {
@@ -44,6 +46,23 @@ class _CallScreenState extends State<CallScreen> {
               _duration.start();
             });
           }
+        }
+      }
+    });
+
+    // Listen for agent (remote participant) disconnecting
+    _cancelAgentDisconnectSub = room.events.listen((event) {
+      if (event is ParticipantDisconnectedEvent &&
+          event.participant is RemoteParticipant &&
+          !_agentEndedCall) {
+        _agentEndedCall = true;
+        _duration.stop();
+        if (mounted) {
+          setState(() {});
+          // Auto-dismiss after 3 seconds
+          Future.delayed(const Duration(seconds: 3), () {
+            if (mounted) Navigator.pop(context);
+          });
         }
       }
     });
@@ -86,6 +105,7 @@ class _CallScreenState extends State<CallScreen> {
   @override
   void dispose() {
     _cancelTrackSub?.call();
+    _cancelAgentDisconnectSub?.call();
     _localTrack?.stop();
     _room?.dispose();
     super.dispose();
@@ -109,6 +129,16 @@ class _CallScreenState extends State<CallScreen> {
               const CircularProgressIndicator(color: Colors.white),
               const SizedBox(height: 12),
               const Text('等待对方接听...', style: TextStyle(color: Colors.white70, fontSize: 14)),
+            ] else if (_agentEndedCall) ...[
+              const Icon(Icons.call_end, size: 64, color: Colors.red),
+              const SizedBox(height: 12),
+              const Text('通话结束', style: TextStyle(color: Colors.white70, fontSize: 20)),
+              const SizedBox(height: 36),
+              FloatingActionButton(
+                onPressed: () => Navigator.pop(context),
+                backgroundColor: Colors.grey,
+                child: const Icon(Icons.close, color: Colors.white, size: 32),
+              ),
             ] else ...[
               const Icon(Icons.mic, size: 64, color: Colors.green),
               const SizedBox(height: 12),
