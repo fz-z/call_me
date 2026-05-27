@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 from main import app
@@ -5,6 +7,8 @@ from main import app
 client = TestClient(app)
 
 from tests.test_auth import _auth_header, _admin_header
+
+WORKER_HEADERS = {"X-Worker-Secret": os.environ.get("WORKER_INTERNAL_SECRET", "test-worker-secret")}
 
 
 def _get_voice_pool_id():
@@ -63,6 +67,7 @@ class TestCallLog:
         resp = client.patch(
             f"/api/call/admin/call-logs/{call_log_id}/end",
             json={"status": "completed", "duration_seconds": 45},
+            headers=WORKER_HEADERS,
         )
         assert resp.status_code == 204
 

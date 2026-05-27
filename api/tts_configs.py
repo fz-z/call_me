@@ -10,6 +10,14 @@ from auth import require_admin
 router = APIRouter(prefix="/api/admin/tts-configs", tags=["tts-configs"])
 
 
+def _tts_config_out(row) -> TtsConfigOut:
+    data = dict(row)
+    data.pop("api_key", None)
+    if "supports_voice_clone" in data:
+        data["supports_voice_clone"] = bool(data["supports_voice_clone"])
+    return TtsConfigOut(**data)
+
+
 @router.get("", response_model=list[TtsConfigOut])
 def list_configs(supports_voice_clone: bool | None = None, admin: dict = Depends(require_admin)):
     db = _sync_conn()
@@ -22,7 +30,7 @@ def list_configs(supports_voice_clone: bool | None = None, admin: dict = Depends
             ).fetchall()
         else:
             rows = db.execute("SELECT * FROM tts_configs ORDER BY created_at DESC").fetchall()
-        return [TtsConfigOut(**dict(r)) for r in rows]
+        return [_tts_config_out(r) for r in rows]
     finally:
         db.close()
 
@@ -51,11 +59,8 @@ def create_config(body: TtsConfigCreate, admin: dict = Depends(require_admin)):
             (config_id, body.name, body.provider, body.model, body.api_key or "", api_key_id, 1 if body.supports_voice_clone else 0, now),
         )
         db.commit()
-        return TtsConfigOut(
-            id=config_id, name=body.name, provider=body.provider,
-            model=body.model, api_key=body.api_key, api_key_id=api_key_id,
-            supports_voice_clone=body.supports_voice_clone, created_at=now,
-        )
+        row = db.execute("SELECT * FROM tts_configs WHERE id = ?", (config_id,)).fetchone()
+        return _tts_config_out(row)
     finally:
         db.close()
 
@@ -98,7 +103,7 @@ def update_config(config_id: str, body: TtsConfigUpdate, admin: dict = Depends(r
         )
         db.commit()
         row = db.execute("SELECT * FROM tts_configs WHERE id = ?", (config_id,)).fetchone()
-        return TtsConfigOut(**dict(row))
+        return _tts_config_out(row)
     finally:
         db.close()
 

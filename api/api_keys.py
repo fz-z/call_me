@@ -6,8 +6,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from database import _sync_conn
 from models import ApiKeyCreate, ApiKeyUpdate, ApiKeyOut
 from auth import require_admin
+from config_utils import mask_api_key
 
 router = APIRouter(prefix="/api/admin/api-keys", tags=["api-keys"])
+
+
+def _api_key_out(row) -> ApiKeyOut:
+    data = dict(row)
+    preview = mask_api_key(data.pop("api_key", ""))
+    return ApiKeyOut(**data, api_key_preview=preview)
 
 
 @router.get("", response_model=list[ApiKeyOut])
@@ -15,7 +22,7 @@ def list_keys(admin: dict = Depends(require_admin)):
     db = _sync_conn()
     try:
         rows = db.execute("SELECT * FROM api_keys ORDER BY created_at").fetchall()
-        return [ApiKeyOut(**dict(r)) for r in rows]
+        return [_api_key_out(r) for r in rows]
     finally:
         db.close()
 
@@ -34,7 +41,8 @@ def create_key(body: ApiKeyCreate, admin: dict = Depends(require_admin)):
             (kid, body.name, body.provider, body.api_key, now),
         )
         db.commit()
-        return ApiKeyOut(id=kid, name=body.name, provider=body.provider, api_key=body.api_key, created_at=now)
+        row = db.execute("SELECT * FROM api_keys WHERE id = ?", (kid,)).fetchone()
+        return _api_key_out(row)
     finally:
         db.close()
 
@@ -46,13 +54,16 @@ def update_key(key_id: str, body: ApiKeyUpdate, admin: dict = Depends(require_ad
         row = db.execute("SELECT * FROM api_keys WHERE id = ?", (key_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Key not found")
+        new_key = row["api_key"]
+        if body.api_key is not None and body.api_key.strip():
+            new_key = body.api_key.strip()
         db.execute(
             "UPDATE api_keys SET name=?, provider=?, api_key=? WHERE id=?",
-            (body.name or row["name"], body.provider or row["provider"], body.api_key or row["api_key"], key_id),
+            (body.name or row["name"], body.provider or row["provider"], new_key, key_id),
         )
         db.commit()
         row = db.execute("SELECT * FROM api_keys WHERE id = ?", (key_id,)).fetchone()
-        return ApiKeyOut(**dict(row))
+        return _api_key_out(row)
     finally:
         db.close()
 
