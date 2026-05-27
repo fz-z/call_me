@@ -94,7 +94,7 @@ class ApiKeyOut(BaseModel):
     id: str
     name: str
     provider: str
-    api_key: str
+    api_key_preview: str
     created_at: str
 
 
@@ -135,7 +135,6 @@ class ModelConfigOut(BaseModel):
     name: str
     provider: str
     model: str
-    api_key: Optional[str] = None
     api_key_id: Optional[str] = None
     temperature: float
     max_tokens: int
@@ -165,7 +164,6 @@ class TtsConfigOut(BaseModel):
     name: str
     provider: str
     model: str
-    api_key: Optional[str] = None
     api_key_id: Optional[str] = None
     supports_voice_clone: bool = True
     created_at: str

@@ -6,8 +6,11 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Force test database path before any imports
-os.environ["DATABASE_PATH"] = "/tmp/call_me_test.db"
+_test_db_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".test_db")
+os.makedirs(_test_db_dir, exist_ok=True)
+os.environ["DATABASE_PATH"] = os.path.join(_test_db_dir, "call_me_test.db")
 os.environ["JWT_SECRET"] = "test-secret-key-for-testing-32bytes-long"
+os.environ["WORKER_INTERNAL_SECRET"] = "test-worker-secret"
 os.environ["ADMIN_USERNAME"] = "admin"
 os.environ["ADMIN_PASSWORD"] = "admin123"
 os.environ["DASHSCOPE_API_KEY"] = "test_dashscope_key"

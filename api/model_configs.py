@@ -10,12 +10,18 @@ from auth import require_admin
 router = APIRouter(prefix="/api/admin/model-configs", tags=["model-configs"])
 
 
+def _model_config_out(row) -> ModelConfigOut:
+    data = dict(row)
+    data.pop("api_key", None)
+    return ModelConfigOut(**data)
+
+
 @router.get("", response_model=list[ModelConfigOut])
 def list_configs(admin: dict = Depends(require_admin)):
     db = _sync_conn()
     try:
         rows = db.execute("SELECT * FROM model_configs ORDER BY created_at DESC").fetchall()
-        return [ModelConfigOut(**dict(r)) for r in rows]
+        return [_model_config_out(r) for r in rows]
     finally:
         db.close()
 
@@ -46,10 +52,8 @@ def create_config(body: ModelConfigCreate, admin: dict = Depends(require_admin))
             (config_id, body.name, body.provider, body.model, body.api_key or "", api_key_id, body.temperature, body.max_tokens, now),
         )
         db.commit()
-        return ModelConfigOut(
-            id=config_id, name=body.name, provider=body.provider, model=body.model,
-            api_key=body.api_key, api_key_id=api_key_id, temperature=body.temperature, max_tokens=body.max_tokens, created_at=now,
-        )
+        row = db.execute("SELECT * FROM model_configs WHERE id = ?", (config_id,)).fetchone()
+        return _model_config_out(row)
     finally:
         db.close()
 
@@ -90,7 +94,7 @@ def update_config(config_id: str, body: ModelConfigUpdate, admin: dict = Depends
         )
         db.commit()
         row = db.execute("SELECT * FROM model_configs WHERE id = ?", (config_id,)).fetchone()
-        return ModelConfigOut(**dict(row))
+        return _model_config_out(row)
     finally:
         db.close()
 

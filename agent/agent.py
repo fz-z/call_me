@@ -28,6 +28,22 @@ load_dotenv(".env")
 logger = logging.getLogger("agent")
 
 
+def _fetch_runtime_secrets(agent_id: str) -> dict:
+    api_base = os.getenv("API_BASE_URL", "http://api:8000").rstrip("/")
+    secret = os.getenv("WORKER_INTERNAL_SECRET") or os.getenv("JWT_SECRET", "")
+    if not secret:
+        raise RuntimeError("WORKER_INTERNAL_SECRET is not configured")
+    url = f"{api_base}/api/internal/worker/agent-runtime/{agent_id}"
+    req = urllib.request.Request(url, headers={"X-Worker-Secret": secret})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return json.loads(resp.read().decode())
+
+
+def _worker_headers() -> dict[str, str]:
+    secret = os.getenv("WORKER_INTERNAL_SECRET") or os.getenv("JWT_SECRET", "")
+    return {"X-Worker-Secret": secret, "Content-Type": "application/json"}
+
+
 def _sanitize_agent_config_for_log(agent_config_str: str | None) -> str | None:
     if not agent_config_str:
         return agent_config_str
@@ -254,6 +270,19 @@ async def entrypoint(ctx: JobContext):
             voice_id = config.get("voice_id")
             call_log_id = config.get("call_log_id")
 
+    agent_id = config.get("agent_id")
+    if agent_id and not config.get("model_config"):
+        try:
+            runtime = await asyncio.to_thread(_fetch_runtime_secrets, agent_id)
+            if runtime.get("model_config"):
+                config["model_config"] = runtime["model_config"]
+            if runtime.get("tts_config"):
+                config["tts_config"] = runtime["tts_config"]
+            if not voice_id and runtime.get("voice_id"):
+                voice_id = runtime["voice_id"]
+        except Exception as e:
+            logger.warning(f"Failed to fetch runtime secrets for agent {agent_id}: {e}")
+
     # Global constraint: keep responses short for voice conversation
     system_prompt = system_prompt.strip() + " 请用口语简洁回答，控制在2-3句话以内。"
     system_prompt += " 你可以使用end_call工具：当用户表达告别意图（如说再见、拜拜等），请在友好简短告别后调用end_call挂断电话。"
@@ -381,7 +410,7 @@ async def entrypoint(ctx: JobContext):
             url = f"{api_base}/api/call/admin/call-logs/{call_log_id}/end"
             try:
                 data = json.dumps({"status": "completed", "duration_seconds": duration}).encode()
-                req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="PATCH")
+                req = urllib.request.Request(url, data=data, headers=_worker_headers(), method="PATCH")
                 urllib.request.urlopen(req, timeout=5)
                 logger.info(f"Call log {call_log_id} ended, duration={duration}s")
             except Exception as e:
