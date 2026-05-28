@@ -2,6 +2,7 @@
   <div>
     <router-link to="/agents" class="back-link">← 返回列表</router-link>
     <div class="page-header">
+      <img v-if="agent.photo_url" :src="agent.photo_url" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid #4a90d9;margin-right:12px" />
       <h2>{{ agent.alias }} 的授权详情</h2>
       <button class="btn btn-primary" @click="showGrant = true">+ 授权给新用户</button>
     </div>
@@ -67,6 +68,19 @@
           <option value="">系统默认</option>
           <option v-for="m in modelConfigs" :key="m.id" :value="m.id">{{ m.name }} ({{ m.provider }}/{{ m.model }})</option>
         </select>
+        <label style="display:block;margin:12px 0 4px;color:#888;font-size:13px">照片</label>
+        <div style="display:flex;align-items:center;gap:10px">
+          <img v-if="pipelinePhotoPreview" :src="pipelinePhotoPreview" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid #4a90d9" />
+          <div v-else style="width:56px;height:56px;border-radius:50%;background:#111;border:2px dashed #333;display:flex;align-items:center;justify-content:center;color:#666;font-size:9px">无</div>
+          <div>
+            <label style="cursor:pointer;color:#4a90d9;font-size:12px">
+              {{ pipelineUploading ? '上传中...' : '选择图片' }}
+              <input type="file" accept="image/*" style="display:none" @change="(e) => handlePipelineUpload(e)" :disabled="pipelineUploading" />
+            </label>
+            <button v-if="pipelinePhotoUrl" class="btn-ghost" style="color:#e74c3c;font-size:11px;display:block;margin-top:4px" @click="pipelinePhotoUrl = ''; pipelinePhotoPreview = ''">移除照片</button>
+          </div>
+        </div>
+        <p v-if="pipelineUploadError" class="error" style="font-size:11px">{{ pipelineUploadError }}</p>
         <p v-if="pipelineEditError" class="error">{{ pipelineEditError }}</p>
         <div class="modal-actions" style="margin-top:16px">
           <button type="button" class="btn-ghost" @click="showPipelineEdit = false">取消</button>
@@ -81,6 +95,19 @@
         <h3>编辑 {{ getUserName(editingCopy.owner_id) }} 的 Agent</h3>
         <input v-model="editAliasText" style="width:100%;background:#111;color:#ddd;border:1px solid #333;border-radius:6px;padding:8px 10px;font-size:14px;margin-bottom:8px;box-sizing:border-box" placeholder="Agent 名字" />
         <textarea v-model="editPromptText" rows="6" style="width:100%;background:#111;color:#ddd;border:1px solid #333;border-radius:6px;padding:10px;font-size:14px" placeholder="输入新的 system prompt"></textarea>
+        <label style="display:block;margin-bottom:4px;color:#888;font-size:13px">照片</label>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <img v-if="editPhotoPreview" :src="editPhotoPreview" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid #4a90d9" />
+          <div v-else style="width:56px;height:56px;border-radius:50%;background:#111;border:2px dashed #333;display:flex;align-items:center;justify-content:center;color:#666;font-size:9px">无</div>
+          <div>
+            <label style="cursor:pointer;color:#4a90d9;font-size:12px">
+              {{ editUploading ? '上传中...' : '选择图片' }}
+              <input type="file" accept="image/*" style="display:none" @change="(e) => handleEditUpload(e)" :disabled="editUploading" />
+            </label>
+            <button v-if="editPhotoUrl" class="btn-ghost" style="color:#e74c3c;font-size:11px;display:block;margin-top:4px" @click="editPhotoUrl = ''; editPhotoPreview = ''">移除照片</button>
+          </div>
+        </div>
+        <p v-if="editUploadError" class="error" style="font-size:11px">{{ editUploadError }}</p>
         <p v-if="editPromptError" class="error">{{ editPromptError }}</p>
         <div class="modal-actions">
           <button type="button" class="btn-ghost" @click="editingCopy = null">取消</button>
@@ -114,8 +141,16 @@ const voiceTtsMap = ref({});  // voice_id → [tts_configs]
 const voiceTtsOptions = ref([]);
 const showPipelineEdit = ref(false);
 const pipelineForm = ref({ voice_pool_id: null, model_config_id: null, tts_config_id: null });
+const pipelinePhotoUrl = ref('');
+const pipelinePhotoPreview = ref('');
+const pipelineUploading = ref(false);
+const pipelineUploadError = ref('');
 const pipelineEditLoading = ref(false);
 const pipelineEditError = ref('');
+const editPhotoUrl = ref('');
+const editPhotoPreview = ref('');
+const editUploading = ref(false);
+const editUploadError = ref('');
 
 async function load() {
   const id = route.params.id;
@@ -178,11 +213,34 @@ function startEditPipeline() {
     model_config_id: agent.value.model_config_id || '',
     tts_config_id: agent.value.tts_config_id || '',
   };
+  pipelinePhotoUrl.value = agent.value.photo_url || '';
+  pipelinePhotoPreview.value = agent.value.photo_url || '';
+  pipelineUploadError.value = '';
   // Pre-populate TTS options for current voice
   const ttsConfigs = voiceTtsMap.value[agent.value.voice_pool_id] || [];
   voiceTtsOptions.value = ttsConfigs;
   pipelineEditError.value = '';
   showPipelineEdit.value = true;
+}
+
+async function handlePipelineUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  pipelineUploadError.value = '';
+  pipelineUploading.value = true;
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const r = await api.post('/admin/upload', formData);
+    if (r.data.ok) {
+      pipelinePhotoUrl.value = r.data.url;
+      pipelinePhotoPreview.value = r.data.url;
+    } else {
+      pipelineUploadError.value = r.data.error || 'Upload failed';
+    }
+  } catch (err) {
+    pipelineUploadError.value = err.response?.data?.detail || 'Upload failed';
+  } finally { pipelineUploading.value = false; }
 }
 
 async function savePipeline() {
@@ -192,6 +250,7 @@ async function savePipeline() {
       voice_pool_id: pipelineForm.value.voice_pool_id || '',
       model_config_id: pipelineForm.value.model_config_id || '',
       tts_config_id: pipelineForm.value.tts_config_id || '',
+      photo_url: pipelinePhotoUrl.value,
     });
     showPipelineEdit.value = false;
     await load();
@@ -204,7 +263,30 @@ function startEditCopy(c) {
   editingCopy.value = c;
   editAliasText.value = c.alias || '';
   editPromptText.value = c.system_prompt || '';
+  editPhotoUrl.value = c.photo_url || '';
+  editPhotoPreview.value = c.photo_url || '';
+  editUploadError.value = '';
   editPromptError.value = '';
+}
+
+async function handleEditUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  editUploadError.value = '';
+  editUploading.value = true;
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const r = await api.post('/admin/upload', formData);
+    if (r.data.ok) {
+      editPhotoUrl.value = r.data.url;
+      editPhotoPreview.value = r.data.url;
+    } else {
+      editUploadError.value = r.data.error || 'Upload failed';
+    }
+  } catch (err) {
+    editUploadError.value = err.response?.data?.detail || 'Upload failed';
+  } finally { editUploading.value = false; }
 }
 
 async function saveEditCopy() {
@@ -214,6 +296,7 @@ async function saveEditCopy() {
     await api.patch(`/agents/${editingCopy.value.id}`, {
       alias: editAliasText.value.trim(),
       system_prompt: editPromptText.value.trim(),
+      photo_url: editPhotoUrl.value,
     });
     editingCopy.value = null;
     await load();

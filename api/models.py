@@ -47,6 +47,7 @@ class AgentCreate(BaseModel):
     voice_pool_id: str
     model_config_id: Optional[str] = None
     tts_config_id: Optional[str] = None
+    photo_url: Optional[str] = None
 
 
 class AgentUpdate(BaseModel):
@@ -55,6 +56,7 @@ class AgentUpdate(BaseModel):
     model_config_id: Optional[str] = None
     voice_pool_id: Optional[str] = None
     tts_config_id: Optional[str] = None
+    photo_url: Optional[str] = None
 
 
 class AgentOut(BaseModel):
@@ -67,6 +69,7 @@ class AgentOut(BaseModel):
     source_agent_id: Optional[str] = None
     model_config_id: Optional[str] = None
     tts_config_id: Optional[str] = None
+    photo_url: Optional[str] = None
     created_at: str
 
 

@@ -52,8 +52,8 @@ def create_agent(
         mc_id = body.model_config_id or None
         try:
             db.execute(
-                "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, voice_pool_id, source_agent_id, model_config_id, tts_config_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (agent_id, body.alias, voice["voice_id"], body.system_prompt, user["id"], body.voice_pool_id, None, mc_id, tts_id, now),
+                "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, voice_pool_id, source_agent_id, model_config_id, tts_config_id, photo_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (agent_id, body.alias, voice["voice_id"], body.system_prompt, user["id"], body.voice_pool_id, None, mc_id, tts_id, body.photo_url, now),
             )
         except Exception:
             import logging
@@ -68,6 +68,7 @@ def create_agent(
             voice_pool_id=body.voice_pool_id,
             system_prompt=body.system_prompt, owner_id=user["id"],
             tts_config_id=getattr(body, 'tts_config_id', None),
+            photo_url=body.photo_url,
             created_at=now,
         )
     finally:
@@ -128,6 +129,9 @@ def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_curr
             new_tts_config_id = body.tts_config_id if body.tts_config_id.strip() else None
         new_voice_pool_id = row["voice_pool_id"] if "voice_pool_id" in row.keys() else None
         new_voice_id = row["voice_id"]
+        new_photo_url = row["photo_url"] if "photo_url" in row.keys() else None
+        if body.photo_url is not None:
+            new_photo_url = body.photo_url if body.photo_url.strip() else None
 
         if body.voice_pool_id is not None:
             if body.voice_pool_id.strip():
@@ -144,8 +148,8 @@ def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_curr
                 new_voice_id = None
 
         db.execute(
-            "UPDATE agents SET alias=?, system_prompt=?, model_config_id=?, voice_pool_id=?, voice_id=?, tts_config_id=? WHERE id=?",
-            (new_alias, new_prompt, new_model_config_id, new_voice_pool_id, new_voice_id, new_tts_config_id, agent_id),
+            "UPDATE agents SET alias=?, system_prompt=?, model_config_id=?, voice_pool_id=?, voice_id=?, tts_config_id=?, photo_url=? WHERE id=?",
+            (new_alias, new_prompt, new_model_config_id, new_voice_pool_id, new_voice_id, new_tts_config_id, new_photo_url, agent_id),
         )
         db.commit()
         return AgentOut(
@@ -154,6 +158,7 @@ def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_curr
             system_prompt=new_prompt, owner_id=row["owner_id"],
             source_agent_id=row["source_agent_id"] if "source_agent_id" in row.keys() else None, model_config_id=new_model_config_id,
             tts_config_id=new_tts_config_id,
+            photo_url=new_photo_url,
             created_at=row["created_at"],
         )
     finally:

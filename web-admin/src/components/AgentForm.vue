@@ -45,6 +45,23 @@
         <input v-model="alias" placeholder="Agent 别名" required style="width:100%;padding:8px;margin-bottom:8px;background:#0f0f1a;border:1px solid #333;color:#e0e0e0;border-radius:4px" />
         <textarea v-model="systemPrompt" placeholder="人设描述 (system prompt)" style="width:100%;padding:8px;margin-bottom:12px;background:#0f0f1a;border:1px solid #333;color:#e0e0e0;border-radius:4px;min-height:80px"></textarea>
 
+        <!-- Photo upload -->
+        <div style="margin-bottom:12px">
+          <p style="color:#888;font-size:12px;margin-bottom:4px">Agent 照片（可选）</p>
+          <div style="display:flex;align-items:center;gap:10px">
+            <img v-if="photoPreview" :src="photoPreview" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid #4a90d9" />
+            <div v-else style="width:64px;height:64px;border-radius:50%;background:#1a1a2e;border:2px dashed #333;display:flex;align-items:center;justify-content:center;color:#666;font-size:10px">无照片</div>
+            <div>
+              <label style="cursor:pointer;color:#4a90d9;font-size:12px">
+                {{ uploading ? '上传中...' : '选择图片' }}
+                <input type="file" accept="image/*" style="display:none" @change="handleUpload" :disabled="uploading" />
+              </label>
+              <button v-if="photoUrl" class="btn-ghost" style="color:#e74c3c;font-size:11px;display:block;margin-top:4px" @click="photoUrl = ''; photoPreview = ''">移除照片</button>
+            </div>
+          </div>
+          <p v-if="uploadError" style="color:#e74c3c;font-size:11px;margin-top:4px">{{ uploadError }}</p>
+        </div>
+
         <!-- Summary card -->
         <div style="background:#16213e;padding:8px 12px;border-radius:4px;margin-bottom:12px;font-size:12px">
           <div>🎤 声音: <strong>{{ allVoices.find(v=>v.id===selectedVoiceId)?.name || '未选择' }}</strong></div>
@@ -75,6 +92,7 @@ const props = defineProps({
   editModelConfigId: String,
   editVoicePoolId: String,
   editTtsConfigId: String,
+  editPhotoUrl: String,
 });
 const emit = defineEmits(['close', 'saved']);
 
@@ -87,6 +105,10 @@ const selectedVoiceId = ref(props.editVoicePoolId || '');
 const selectedModelConfigId = ref(props.editModelConfigId || '');
 const alias = ref(props.editAlias || '');
 const systemPrompt = ref(props.editPrompt || '');
+const photoUrl = ref(props.editPhotoUrl || '');
+const photoPreview = ref(props.editPhotoUrl || '');
+const uploading = ref(false);
+const uploadError = ref('');
 const saving = ref(false);
 const error = ref('');
 
@@ -121,6 +143,26 @@ onMounted(async () => {
   } catch (_) {}
 });
 
+async function handleUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  uploadError.value = '';
+  uploading.value = true;
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const r = await api.post('/admin/upload', formData);
+    if (r.data.ok) {
+      photoUrl.value = r.data.url;
+      photoPreview.value = r.data.url;
+    } else {
+      uploadError.value = r.data.error || 'Upload failed';
+    }
+  } catch (err) {
+    uploadError.value = err.response?.data?.detail || 'Upload failed';
+  } finally { uploading.value = false; }
+}
+
 async function submit() {
   saving.value = true; error.value = '';
   try {
@@ -130,6 +172,7 @@ async function submit() {
       voice_pool_id: selectedVoiceId.value,
       tts_config_id: resolvedTtsConfigId.value || null,
       model_config_id: selectedModelConfigId.value || null,
+      photo_url: photoUrl.value,
     };
     if (props.editId) {
       await api.patch(`/agents/${props.editId}`, body);

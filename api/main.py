@@ -1,10 +1,13 @@
 import asyncio
+import os
+import uuid
 
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from database import init_db
-from auth import router as auth_router
+from auth import router as auth_router, require_admin
 from agents import router as agents_router
 from permissions import router as permissions_router
 from admin import router as admin_router
@@ -49,8 +52,33 @@ async def health():
     return {"status": "ok"}
 
 
-from fastapi.staticfiles import StaticFiles
-import os
+PHOTOS_DIR = os.environ.get("PHOTOS_DIR", "/data/photos")
+
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+MAX_UPLOAD_SIZE = 5 * 1024 * 1024  # 5MB
+
+
+@app.post("/api/admin/upload")
+async def upload_photo(
+    file: UploadFile = File(...),
+    _: None = Depends(require_admin),
+):
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        return {"ok": False, "error": f"不支持的格式: {ext}，仅支持 jpg/png/webp"}
+    contents = await file.read()
+    if len(contents) > MAX_UPLOAD_SIZE:
+        return {"ok": False, "error": "文件太大，最大 5MB"}
+    os.makedirs(PHOTOS_DIR, exist_ok=True)
+    filename = f"{uuid.uuid4().hex}{ext}"
+    filepath = os.path.join(PHOTOS_DIR, filename)
+    with open(filepath, "wb") as f:
+        f.write(contents)
+    return {"ok": True, "url": f"/photos/{filename}"}
+
+
+os.makedirs(PHOTOS_DIR, exist_ok=True)
+app.mount("/photos", StaticFiles(directory=PHOTOS_DIR), name="photos")
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 if os.path.isdir(static_dir):
@@ -58,5 +86,6 @@ if os.path.isdir(static_dir):
     if os.path.isdir(flutter_dir):
         app.mount("/app", StaticFiles(directory=flutter_dir, html=True), name="flutter_app")
     app.mount("/admin", StaticFiles(directory=static_dir, html=True), name="admin")
+
 
 

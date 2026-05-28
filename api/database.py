@@ -344,6 +344,11 @@ def init_db():
             conn.execute("ALTER TABLE call_logs ADD COLUMN transcript TEXT")
         except Exception:
             pass
+        # Migration: add photo_url to agents
+        try:
+            conn.execute("ALTER TABLE agents ADD COLUMN photo_url TEXT")
+        except Exception:
+            pass
 
         conn.commit()
     finally:
