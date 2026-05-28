@@ -8,7 +8,7 @@ ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
 COPY pyproject.toml .
-RUN pip install --no-cache-dir -e . || pip install --no-cache-dir "livekit-agents[openai,silero,turn-detector]~=1.3" livekit-plugins-noise-cancellation dashscope python-dotenv aiohttp certifi
+RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -e . || pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ "livekit-agents[openai,silero,turn-detector]~=1.3" livekit-plugins-noise-cancellation dashscope python-dotenv aiohttp certifi
 
 # Download turn detector and VAD models
 RUN python -m livekit.agents download-files
