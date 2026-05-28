@@ -133,7 +133,7 @@ async def _monitor_farewell(should_end: asyncio.Event, session: AgentSession, lo
                 return
 
     async def _fallback():
-        await asyncio.sleep(5.0)
+        await asyncio.sleep(2.0)
         if farewell_pending and not should_end.is_set():
             logger.info("LLM did not handle farewell in time, forcing disconnect")
             should_end.set()
