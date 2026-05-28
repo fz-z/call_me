@@ -23,6 +23,8 @@ class _CallScreenState extends State<CallScreen> {
   Function()? _cancelTrackSub;
   Function()? _cancelAgentDisconnectSub;
   bool _agentEndedCall = false;
+  bool _micOk = false;
+  String _micError = '';
 
   @override
   void initState() {
@@ -75,10 +77,12 @@ class _CallScreenState extends State<CallScreen> {
         final track = await LocalAudioTrack.create();
         await room.localParticipant!.publishAudioTrack(track);
         _localTrack = track;
-      } catch (_) {
+        _micOk = true;
+      } catch (e) {
+        _micError = e.toString();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Microphone unavailable. Agent cannot hear you.')),
+            SnackBar(content: Text('麦克风错误: $e'), duration: const Duration(seconds: 5)),
           );
         }
       }
@@ -159,8 +163,13 @@ class _CallScreenState extends State<CallScreen> {
                 child: const Icon(Icons.close, color: Colors.white, size: 32),
               ),
             ] else ...[
-              const Icon(Icons.mic, size: 64, color: Colors.green),
-              const SizedBox(height: 12),
+              Icon(Icons.mic, size: 64, color: _micOk ? Colors.green : Colors.red),
+              const SizedBox(height: 4),
+              Text(
+                _micOk ? '麦克风已连接' : (_micError.isNotEmpty ? '麦克风异常: $_micError' : '麦克风未就绪'),
+                style: TextStyle(color: _micOk ? Colors.green : Colors.red, fontSize: 11),
+              ),
+              const SizedBox(height: 8),
               StreamBuilder(
                 stream: Stream.periodic(const Duration(seconds: 1)),
                 builder: (_, __) => Text(
