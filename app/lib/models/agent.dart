@@ -5,6 +5,7 @@ class VoiceAgent {
   final String systemPrompt;
   final String ownerId;
   final String createdAt;
+  final String? photoUrl;
 
   VoiceAgent({
     required this.id,
@@ -13,6 +14,7 @@ class VoiceAgent {
     required this.systemPrompt,
     required this.ownerId,
     required this.createdAt,
+    this.photoUrl,
   });
 
   factory VoiceAgent.fromJson(Map<String, dynamic> json) {
@@ -23,6 +25,7 @@ class VoiceAgent {
       systemPrompt: json['system_prompt'],
       ownerId: json['owner_id'],
       createdAt: json['created_at'],
+      photoUrl: json['photo_url'] as String?,
     );
   }
 }

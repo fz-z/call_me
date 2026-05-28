@@ -102,6 +102,11 @@ class _CallScreenState extends State<CallScreen> {
     if (mounted) Navigator.pop(context);
   }
 
+  String _photoFullUrl(String path) {
+    if (path.startsWith('http')) return path;
+    return '${Uri.base.origin}$path';
+  }
+
   @override
   void dispose() {
     _cancelTrackSub?.call();
@@ -119,6 +124,20 @@ class _CallScreenState extends State<CallScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (widget.agent.photoUrl != null && widget.agent.photoUrl!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(64),
+                  child: Image.network(
+                    _photoFullUrl(widget.agent.photoUrl!),
+                    width: 96,
+                    height: 96,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  ),
+                ),
+              ),
             Text(widget.agent.alias, style: const TextStyle(color: Colors.white, fontSize: 20)),
             const SizedBox(height: 16),
             if (_state == CallState.connecting) ...[
