@@ -40,10 +40,16 @@ Flutter App ──LiveKit Cloud── Agent Worker (STT+LLM+TTS)
      │                              │  tts_config} from token attrs
      ▼                              ▼
   api (FastAPI:8000) ──────── DashScope API
-     │  SQLite
-     │  users/agents/permissions
+     │  SQLite (/data/call_me.db)
+     │  users/agents/permissions/call_logs
      │  model_configs/tts_configs/api_keys/voices/voice_tts_links
-     └── serves web-admin static at /admin/
+     │  /data/photos (agent photo uploads)
+     │
+     ├── /admin/ (web-admin static)
+     ├── /app/   (flutter web build)
+     └── /photos/ (uploaded agent photos)
+
+Production: nginx :443 → FastAPI :8000
 ```
 
 ## Config Architecture

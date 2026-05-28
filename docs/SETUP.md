@@ -36,85 +36,68 @@ LIVEKIT_URL=wss://my-project.livekit.cloud
 LIVEKIT_API_KEY=APIxxxxxxxxxxxx
 LIVEKIT_API_SECRET=xxxxxxxxxxxxxxxxxxxx
 
-# 声音复刻模型（默认 qwen3-tts-vc-realtime）
-QWEN_TTS_MODEL=qwen3-tts-vc-realtime-2026-01-15
-
 # 管理员账号（首次启动自动创建）
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=your-secure-password
 
 # JWT 签名密钥（请改成随机字符串）
 JWT_SECRET=your-random-secret-string
+
+# Agent Worker 内部鉴权（与 API 共享）
+WORKER_INTERNAL_SECRET=your-random-secret-string
 ```
+
+配置逻辑：
+- **首次启动**：`.env` 中的值自动写入数据库配置池
+- **后续运行**：所有配置在 Web Admin 管理，修改 `.env` 不再影响运行
+- Agent Worker 仅在数据库完全为空时回退到 `.env`
 
 ## 3. 部署
 
-### 方式一：Docker Compose（推荐）
+### Docker Compose
 
 ```bash
 docker compose up -d
 ```
 
-- API 服务：`http://your-server:8000`
-- API 文档：`http://your-server:8000/docs`（Swagger UI）
-- Agent Worker：自动注册到 LiveKit Cloud
+- Web Admin：`http://localhost:8000/admin/`
+- Flutter App：`http://localhost:8000/app/`
+- API 文档：`http://localhost:8000/docs`（Swagger UI）
 
-### 方式二：手动运行
+### 生产环境
 
-**API 服务：**
+生产环境建议使用 nginx 反向代理 + HTTPS（Let's Encrypt），Docker Compose 示例见项目根目录。
 
-```bash
-cd api
-# 安装依赖
-pip install -e .
-# 启动
-uvicorn main:app --host 0.0.0.0 --port 8000
-```
+## 4. 首次使用
 
-**Agent Worker：**
+1. 打开 Web Admin：`http://localhost:8000/admin/`
+2. 用管理员账号登录（`admin` / 你在 `.env` 中设置的密码）
+3. 配置池 → 添加 API Key → 创建 LLM 模型 → 创建 TTS 模型
+4. 声音库 → 上传音频复刻声音（或使用内置音色）
+5. 创建 Agent：选音色 → 选 LLM → 写人设 → 上传照片
+6. 打开 App：`http://localhost:8000/app/` → 选 Agent → 开始通话
 
-```bash
-cd agent
-# 安装依赖
-pip install -e .
-# 先下载模型文件
-python agent.py download-files
-# 启动 Worker
-python agent.py start
-```
+## 5. Flutter App
 
-## 4. Flutter App
+### 配置
 
-### 安装 Flutter SDK
+App 自动检测部署域名（`Uri.base.origin`），无需手动配置 Server URL。
 
-```bash
-# macOS
-brew install --cask flutter
-
-# 或手动下载：https://docs.flutter.dev/get-started/install
-```
-
-### 配置 App 连接
-
-1. 在 App 的 Settings 页面中设置 Server URL（如 `http://your-server:8000`）
-2. 如果是 Android 模拟器，使用 `http://10.0.2.2:8000`
-3. 如果是 iOS 模拟器，使用 `http://localhost:8000`
-
-### 运行
+### 开发运行
 
 ```bash
 cd app
 flutter pub get
-flutter run              # 自动选择可用设备
-flutter run -d chrome    # 或指定 Chrome 浏览器
+flutter run -d chrome    # Chrome 浏览器测试
 ```
 
-## 5. 首次使用
+### 生产构建
 
-1. 打开 App → 用管理员账号登录（`admin` / 你在 `.env` 中设置的密码）
-2. 或注册一个新用户
-3. 点击"创建 Agent" → 上传一段音频（30s~5min，wav/mp3/m4a）→ 起别名 → 写人设
-4. 回到首页 → 选择刚创建的 Agent → 点击"开始通话"
+```bash
+cd app
+flutter build web --base-href /app/
+# 产物在 build/web/，部署到服务器的 /opt/call_me/flutter-app/
+```
 
 ## 常见问题
 
@@ -125,14 +108,20 @@ flutter run -d chrome    # 或指定 Chrome 浏览器
 - 单人说话，不要有其他人声
 - 正常语速和音量
 
+### 通电话没有声音？
+
+- 检查 Agent 日志：`docker logs call_me-agent-1 --tail 50`
+- VC 声音（克隆的）必须用 VC TTS 模型 `qwen3-tts-vc-realtime-2026-01-15`
+- Flash 模型只能用内置声音
+- 去 Web Admin → Agent 详情 → Pipeline 配置确认 TTS 模型和音色匹配
+
 ### Docker 部署后 Flutter App 连不上？
 
-- 确认服务器防火墙已开放 8000 端口
-- 检查 App 中 Server URL 是否正确
-- 服务器和手机在同一个网络吗？（本地开发用内网 IP，生产用域名）
+- 确认服务器防火墙已开放 80/443 端口
+- 本地开发用 `http://localhost:8000/app/`
 
 ### 通话质量不好？
 
 - 检查网络延迟（WebRTC 对网络质量敏感）
 - 声音复刻的样本质量直接影响合成效果
-- 可以尝试不同的 TTS 模型（在 `.env` 中修改 `QWEN_TTS_MODEL`）
+- 可以尝试不同的 TTS 模型（在 Web Admin 中修改 Agent 的 Pipeline 配置）
