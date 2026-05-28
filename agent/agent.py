@@ -228,6 +228,16 @@ async def entrypoint(ctx: JobContext):
 
     t0 = time.time()
     connect_task = None
+    _bg_tasks: list[asyncio.Task] = []
+
+    async def _cleanup():
+        for t in _bg_tasks:
+            if not t.done():
+                t.cancel()
+        try:
+            await ctx.room.disconnect()
+        except Exception:
+            pass
 
     # Read agent_config from dispatch metadata (fast path) or fall back to polling
     agent_config_str = ctx.job.metadata or None
@@ -474,6 +484,7 @@ async def entrypoint(ctx: JobContext):
     _end_call_task = asyncio.create_task(_handle_end_call(_should_end, session, ctx.room, logger))
     _silence_task = asyncio.create_task(_monitor_silence(_should_end, session, logger))
     _farewell_task = asyncio.create_task(_monitor_farewell(_should_end, session, logger))
+    _bg_tasks.extend([_end_call_task, _silence_task, _farewell_task])
 
     # Agent speaks first: generate greeting via LLM as background task
     # (non-blocking so entrypoint returns immediately, avoiding timeout)
@@ -508,7 +519,8 @@ async def entrypoint(ctx: JobContext):
             logger.warning(f"Failed to generate initial greeting: {e}")
             await session.say("你好，请问有什么可以帮助你的？", allow_interruptions=False)
 
-    asyncio.create_task(_speak_greeting())
+    _greeting_task = asyncio.create_task(_speak_greeting())
+    _bg_tasks.append(_greeting_task)
 
 
 if __name__ == "__main__":
