@@ -335,9 +335,15 @@ def init_db():
                 started_at TEXT NOT NULL,
                 ended_at TEXT,
                 duration_seconds INTEGER,
-                status TEXT NOT NULL DEFAULT 'running'
+                status TEXT NOT NULL DEFAULT 'running',
+                transcript TEXT
             )
         """)
+        # Migration: add transcript column if not exists (for existing tables)
+        try:
+            conn.execute("ALTER TABLE call_logs ADD COLUMN transcript TEXT")
+        except Exception:
+            pass
 
         conn.commit()
     finally:

@@ -82,12 +82,15 @@ def resolve_agent_runtime_config(db, agent_row) -> dict:
 
 
 def public_agent_config_payload(db, agent_row, *, call_log_id: str) -> dict:
-    """Config embedded in LiveKit token — must not contain secrets."""
+    """Config embedded in LiveKit token (encrypted JWT) — includes model/tts configs
+    with API keys so the agent worker can configure LLM/TTS dynamically."""
     runtime = resolve_agent_runtime_config(db, agent_row)
     return {
         "agent_id": runtime["agent_id"],
         "alias": runtime["alias"],
         "system_prompt": runtime["system_prompt"],
         "voice_id": runtime["voice_id"],
+        "model_config": runtime["model_config"],
+        "tts_config": runtime["tts_config"],
         "call_log_id": call_log_id,
     }

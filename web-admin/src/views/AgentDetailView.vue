@@ -78,7 +78,8 @@
     <!-- Edit copy system prompt -->
     <div v-if="editingCopy" class="modal-overlay" @click.self="editingCopy = null">
       <form class="modal" @submit.prevent="saveEditCopy" style="min-width:400px">
-        <h3>编辑 {{ getUserName(editingCopy.owner_id) }} 的人设</h3>
+        <h3>编辑 {{ getUserName(editingCopy.owner_id) }} 的 Agent</h3>
+        <input v-model="editAliasText" style="width:100%;background:#111;color:#ddd;border:1px solid #333;border-radius:6px;padding:8px 10px;font-size:14px;margin-bottom:8px;box-sizing:border-box" placeholder="Agent 名字" />
         <textarea v-model="editPromptText" rows="6" style="width:100%;background:#111;color:#ddd;border:1px solid #333;border-radius:6px;padding:10px;font-size:14px" placeholder="输入新的 system prompt"></textarea>
         <p v-if="editPromptError" class="error">{{ editPromptError }}</p>
         <div class="modal-actions">
@@ -104,6 +105,7 @@ const modelConfigs = ref([]);
 const ttsConfigs = ref([]);
 const showGrant = ref(false);
 const editingCopy = ref(null);
+const editAliasText = ref('');
 const editPromptText = ref('');
 const editPromptLoading = ref(false);
 const editPromptError = ref('');
@@ -200,6 +202,7 @@ async function savePipeline() {
 
 function startEditCopy(c) {
   editingCopy.value = c;
+  editAliasText.value = c.alias || '';
   editPromptText.value = c.system_prompt || '';
   editPromptError.value = '';
 }
@@ -208,7 +211,10 @@ async function saveEditCopy() {
   if (!editPromptText.value.trim()) return;
   editPromptLoading.value = true; editPromptError.value = '';
   try {
-    await api.patch(`/agents/${editingCopy.value.id}`, { system_prompt: editPromptText.value.trim() });
+    await api.patch(`/agents/${editingCopy.value.id}`, {
+      alias: editAliasText.value.trim(),
+      system_prompt: editPromptText.value.trim(),
+    });
     editingCopy.value = null;
     await load();
   } catch (e) {

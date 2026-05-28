@@ -393,6 +393,31 @@ async def entrypoint(ctx: JobContext):
         user_away_timeout=30.0,
     )
 
+    # Collect conversation transcript (user + assistant turns)
+    transcript_turns: list[dict] = []
+
+    def _on_transcript_item(ev):
+        if not hasattr(ev.item, "role") or not hasattr(ev.item, "content"):
+            return
+        role = ev.item.role
+        if role not in ("user", "assistant"):
+            return
+        content = ev.item.content
+        if isinstance(content, list):
+            text = " ".join(
+                p.get("text", "") if isinstance(p, dict) else str(p) for p in content
+            )
+        else:
+            text = str(content) if content else ""
+        if text.strip():
+            transcript_turns.append({
+                "role": role,
+                "text": text.strip(),
+                "time": round(time.time() - t0, 1),
+            })
+
+    session.on("conversation_item_added", _on_transcript_item)
+
     # Register call log callback BEFORE session.start, so it fires immediately
     # when the user disconnects (participant_disconnected) rather than waiting
     # for the room-level "disconnected" event which can be delayed.
@@ -409,10 +434,15 @@ async def entrypoint(ctx: JobContext):
             api_base = os.getenv("API_BASE_URL", "http://api:8000")
             url = f"{api_base}/api/call/admin/call-logs/{call_log_id}/end"
             try:
-                data = json.dumps({"status": "completed", "duration_seconds": duration}).encode()
+                payload = {
+                    "status": "completed",
+                    "duration_seconds": duration,
+                    "transcript": json.dumps(transcript_turns, ensure_ascii=False),
+                }
+                data = json.dumps(payload).encode()
                 req = urllib.request.Request(url, data=data, headers=_worker_headers(), method="PATCH")
                 urllib.request.urlopen(req, timeout=5)
-                logger.info(f"Call log {call_log_id} ended, duration={duration}s")
+                logger.info(f"Call log {call_log_id} ended, duration={duration}s, turns={len(transcript_turns)}")
             except Exception as e:
                 logger.warning(f"Failed to update call_log {call_log_id}: {e}")
 

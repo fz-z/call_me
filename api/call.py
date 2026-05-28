@@ -79,8 +79,8 @@ def end_call_log(
     try:
         ended_at = datetime.now(timezone.utc).isoformat()
         db.execute(
-            "UPDATE call_logs SET status = ?, ended_at = ?, duration_seconds = ? WHERE id = ?",
-            (body.status, ended_at, body.duration_seconds, call_log_id),
+            "UPDATE call_logs SET status = ?, ended_at = ?, duration_seconds = ?, transcript = ? WHERE id = ?",
+            (body.status, ended_at, body.duration_seconds, body.transcript, call_log_id),
         )
         db.commit()
     finally:

@@ -227,11 +227,13 @@ class CallLogOut(BaseModel):
     ended_at: Optional[str] = None
     duration_seconds: Optional[int] = None
     status: str
+    transcript: Optional[str] = None
 
 
 class CallLogEndRequest(BaseModel):
     status: str = "completed"
     duration_seconds: int
+    transcript: Optional[str] = None
 
 
 class CallLogListResponse(BaseModel):
