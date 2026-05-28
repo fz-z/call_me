@@ -56,7 +56,7 @@ def _sanitize_agent_config_for_log(agent_config_str: str | None) -> str | None:
     def redact(value):
         if isinstance(value, dict):
             return {
-                key: "***" if key.lower() in {"api_key", "apiKey".lower()} else redact(val)
+                key: "***" if key.lower() in {"api_key", "apikey", "voice_id", "voiceid"} else redact(val)
                 for key, val in value.items()
             }
         if isinstance(value, list):
@@ -382,7 +382,7 @@ async def entrypoint(ctx: JobContext):
         "llm_provider": llm_provider,
         "tts_provider": tts_provider,
     })
-    logger.info(f"TTS created: model={tts.model}, voice_id={voice_id}, is_realtime={tts._is_realtime_model()}")
+    logger.info(f"TTS created: model={tts.model}, voice_id=***, is_realtime={tts._is_realtime_model()}")
     t_init = time.time()
     logger.info(f"[timing] LLM/STT/TTS init + connect: {t_init - t0:.2f}s total")
 
