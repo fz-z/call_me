@@ -265,7 +265,12 @@ class _QwenASRRecognizeStream(RecognizeStream):
         await asyncio.to_thread(
             conversation.update_session,
             output_modalities=[MultiModality.TEXT],
-            enable_turn_detection=False,
+            enable_turn_detection=True,
+            turn_detection={
+                "type": "server_vad",
+                "threshold": 0.5,
+                "silence_duration_ms": 400,
+            },
             input_audio_format=AudioFormat.PCM_16000HZ_MONO_16BIT,
             enable_input_audio_transcription=True,
             transcription_params=tp,
