@@ -475,37 +475,40 @@ async def entrypoint(ctx: JobContext):
     _silence_task = asyncio.create_task(_monitor_silence(_should_end, session, logger))
     _farewell_task = asyncio.create_task(_monitor_farewell(_should_end, session, logger))
 
-    # Agent speaks first: generate a short greeting via LLM
-    from livekit.agents.llm import ChatContext, ChatMessage
-
-    try:
-        greeting_prompt = os.getenv(
-            "INITIAL_GREETING_PROMPT",
-            "通话刚刚接通。请根据你的人设，用中文向对方简短打招呼"
-            "（包含自我介绍），询问对方需要什么。20字以内，纯文本不要动作描写。"
-        )
-        greeting_ctx = ChatContext()
-        greeting_ctx.add_message(role="system", content=system_prompt)
-        greeting_ctx.add_message(role="user", content=greeting_prompt)
-        t_llm_start = time.time()
-        greeting_stream = llm.chat(chat_ctx=greeting_ctx)
-        greeting_text = ""
-        async for chunk in greeting_stream:
-            if chunk.delta and chunk.delta.content:
-                greeting_text += chunk.delta.content
-        greeting_text = greeting_text.strip()
-        t_greet = time.time()
-        logger.info(f"[timing] LLM greeting: {t_greet - t_llm_start:.2f}s (total {t_greet - t0:.2f}s)")
-        if greeting_text:
-            logger.info(f"Initial greeting: {greeting_text}")
-            await session.say(greeting_text, allow_interruptions=False)
-        else:
+    # Agent speaks first: generate greeting via LLM as background task
+    # (non-blocking so entrypoint returns immediately, avoiding timeout)
+    async def _speak_greeting():
+        from livekit.agents.llm import ChatContext, ChatMessage
+        try:
+            greeting_prompt = os.getenv(
+                "INITIAL_GREETING_PROMPT",
+                "通话刚刚接通。请根据你的人设，用中文向对方简短打招呼"
+                "（包含自我介绍），询问对方需要什么。20字以内，纯文本不要动作描写。"
+            )
+            greeting_ctx = ChatContext()
+            greeting_ctx.add_message(role="system", content=system_prompt)
+            greeting_ctx.add_message(role="user", content=greeting_prompt)
+            t_llm_start = time.time()
+            greeting_stream = llm.chat(chat_ctx=greeting_ctx)
+            greeting_text = ""
+            async for chunk in greeting_stream:
+                if chunk.delta and chunk.delta.content:
+                    greeting_text += chunk.delta.content
+            greeting_text = greeting_text.strip()
+            t_greet = time.time()
+            logger.info(f"[timing] LLM greeting: {t_greet - t_llm_start:.2f}s (total {t_greet - t0:.2f}s)")
+            if greeting_text:
+                logger.info(f"Initial greeting: {greeting_text}")
+                await session.say(greeting_text, allow_interruptions=False)
+            else:
+                await session.say("你好，请问有什么可以帮助你的？", allow_interruptions=False)
+            t_speak = time.time()
+            logger.info(f"[timing] TTS speak greeting: {t_speak - t_greet:.2f}s (total {t_speak - t0:.2f}s)")
+        except Exception as e:
+            logger.warning(f"Failed to generate initial greeting: {e}")
             await session.say("你好，请问有什么可以帮助你的？", allow_interruptions=False)
-        t_speak = time.time()
-        logger.info(f"[timing] TTS speak greeting: {t_speak - t_greet:.2f}s (total {t_speak - t0:.2f}s)")
-    except Exception as e:
-        logger.warning(f"Failed to generate initial greeting: {e}")
-        await session.say("你好，请问有什么可以帮助你的？", allow_interruptions=False)
+
+    asyncio.create_task(_speak_greeting())
 
 
 if __name__ == "__main__":
