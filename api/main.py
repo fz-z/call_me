@@ -54,6 +54,9 @@ import os
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 if os.path.isdir(static_dir):
+    flutter_dir = os.path.join(os.path.dirname(__file__), "flutter_app")
+    if os.path.isdir(flutter_dir):
+        app.mount("/app", StaticFiles(directory=flutter_dir, html=True), name="flutter_app")
     app.mount("/admin", StaticFiles(directory=static_dir, html=True), name="admin")
 
 

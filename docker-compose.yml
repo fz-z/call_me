@@ -6,6 +6,7 @@ services:
     volumes:
       - api_data:/data
       - ./web-admin/dist:/app/static
+      - ./flutter-app:/app/flutter_app
 
   agent:
     build: ./agent
