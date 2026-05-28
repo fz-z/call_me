@@ -8,12 +8,22 @@ services:
       - api_data:/data
       - ./web-admin/dist:/app/static
       - ./flutter-app:/app/flutter_app
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   agent:
     build: ./agent
     env_file: .env
     environment:
       - API_BASE_URL=http://api:8000
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
       # WORKER_INTERNAL_SECRET 从 .env 注入，用于拉取运行时密钥
 
 volumes:
