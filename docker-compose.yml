@@ -3,6 +3,7 @@ services:
     build: ./api
     ports: ["8000:8000"]
     env_file: .env
+    mem_limit: 256m
     volumes:
       - api_data:/data
       - ./web-admin/dist:/app/static
