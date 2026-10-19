@@ -1,14 +1,17 @@
 import uuid
 import os
+import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 
 from database import _sync_conn
-from models import VoiceOut, VoiceCreate, VoiceManualCreate, VoiceUpdate, TtsConfigOut, VoiceTtsLinkRequest, AuditionRequest, AuditionResponse
+from models import VoiceOut, VoiceCreate, VoiceManualCreate, VoiceUpdate, TtsConfigOut, VoiceTtsLinkRequest, AuditionRequest, AuditionResponse, VoiceRuntimeBindingOut
 from auth import require_admin
 from voice_enrollment import enroll_voice
 from tts_strategy import get_tts_strategy
+from runtime_bindings import list_voice_bindings
+from realtime_configs import SUPPORTED_MODEL, SUPPORTED_PROVIDER
 
 router = APIRouter(prefix="/api/admin/voices", tags=["voices"])
 
@@ -23,6 +26,14 @@ def _normalize_provider(provider: str) -> str:
     if "deepseek" in p:
         return "deepseek"
     return p
+
+
+def _voice_clone_is_supported(capabilities_json: str) -> bool:
+    try:
+        capabilities = json.loads(capabilities_json or "{}")
+    except json.JSONDecodeError:
+        return False
+    return isinstance(capabilities, dict) and capabilities.get("voice_clone") is True
 
 
 @router.get("", response_model=list[VoiceOut])
@@ -171,6 +182,83 @@ def delete_voice(voice_id: str, admin: dict = Depends(require_admin)):
     finally:
         db.close()
     return None
+
+
+@router.get("/{voice_id}/runtime-bindings", response_model=list[VoiceRuntimeBindingOut])
+def get_voice_runtime_bindings(voice_id: str, admin: dict = Depends(require_admin)):
+    db = _sync_conn()
+    try:
+        voice = db.execute("SELECT id FROM voices WHERE id = ?", (voice_id,)).fetchone()
+        if not voice:
+            raise HTTPException(status_code=404, detail="Voice not found")
+        return [VoiceRuntimeBindingOut(**binding) for binding in list_voice_bindings(db, voice_id)]
+    finally:
+        db.close()
+
+
+@router.post("/{voice_id}/realtime-bindings", response_model=VoiceRuntimeBindingOut)
+async def create_realtime_binding(
+    voice_id: str,
+    realtime_config_id: str = Form(...),
+    audio_file: UploadFile = File(...),
+    authorization_confirmed: bool = Form(...),
+    admin: dict = Depends(require_admin),
+):
+    if not authorization_confirmed:
+        raise HTTPException(status_code=400, detail="Reference-audio authorization must be confirmed")
+
+    db = _sync_conn()
+    try:
+        voice = db.execute("SELECT id, name FROM voices WHERE id = ?", (voice_id,)).fetchone()
+        if not voice:
+            raise HTTPException(status_code=404, detail="Voice not found")
+        config = db.execute(
+            "SELECT rc.*, COALESCE(ak.api_key, rc.api_key, '') AS resolved_api_key "
+            "FROM realtime_configs rc LEFT JOIN api_keys ak ON ak.id = rc.api_key_id "
+            "WHERE rc.id = ?",
+            (realtime_config_id,),
+        ).fetchone()
+        if not config:
+            raise HTTPException(status_code=404, detail="Realtime config not found")
+        if config["provider"] != SUPPORTED_PROVIDER or config["model"] != SUPPORTED_MODEL:
+            raise HTTPException(status_code=400, detail="Realtime config is not a supported Qwen configuration")
+        if not _voice_clone_is_supported(config["capabilities_json"]):
+            raise HTTPException(status_code=400, detail="Realtime config must declare voice_clone capability")
+        if not config["resolved_api_key"]:
+            raise HTTPException(status_code=400, detail="Realtime config has no valid API key")
+
+        audio_bytes = await audio_file.read()
+        content_type = audio_file.content_type or "audio/wav"
+        try:
+            provider_voice_id = await enroll_voice(
+                audio_bytes,
+                content_type,
+                config["resolved_api_key"],
+                voice_name=voice["name"],
+                target_model=config["model"],
+                endpoint=config["endpoint"] or None,
+            )
+        except Exception:
+            raise HTTPException(status_code=502, detail="Voice enrollment failed")
+
+        now = datetime.now(timezone.utc).isoformat()
+        db.execute(
+            "INSERT INTO voice_runtime_bindings "
+            "(id, voice_pool_id, runtime_kind, runtime_config_id, provider_voice_id, created_at) "
+            "VALUES (?, ?, 'realtime', ?, ?, ?) "
+            "ON CONFLICT(voice_pool_id, runtime_kind, runtime_config_id) DO UPDATE SET "
+            "provider_voice_id = excluded.provider_voice_id, created_at = excluded.created_at",
+            (str(uuid.uuid4()), voice_id, realtime_config_id, provider_voice_id, now),
+        )
+        db.commit()
+        binding = next(
+            item
+            for item in list_voice_bindings(db, voice_id)
+            if item["runtime_kind"] == "realtime" and item["runtime_config_id"] == realtime_config_id
+        )
+        return VoiceRuntimeBindingOut(**binding)
+    finally:
+        db.close()
 
 
 @router.get("/{voice_id}/tts-configs", response_model=list[TtsConfigOut])

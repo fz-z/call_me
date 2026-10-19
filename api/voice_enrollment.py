@@ -16,14 +16,20 @@ import aiohttp
 class EnrollmentStrategy:
     """Base strategy for voice enrollment."""
 
-    async def enroll(self, audio_bytes: bytes, mime_type: str, api_key: str, tts_model: str, voice_name: str = "") -> str:
+    async def enroll(
+        self, audio_bytes: bytes, mime_type: str, api_key: str, tts_model: str,
+        voice_name: str = "", endpoint: str | None = None,
+    ) -> str:
         raise NotImplementedError
 
 
 class QwenEnrollmentStrategy(EnrollmentStrategy):
     """Qwen-TTS voice enrollment: base64 data URI, action=create."""
 
-    async def enroll(self, audio_bytes: bytes, mime_type: str, api_key: str, tts_model: str, voice_name: str = "") -> str:
+    async def enroll(
+        self, audio_bytes: bytes, mime_type: str, api_key: str, target_model: str,
+        voice_name: str = "", endpoint: str | None = None,
+    ) -> str:
         b64 = base64.b64encode(audio_bytes).decode("utf-8")
         data_uri = f"data:{mime_type};base64,{b64}"
 
@@ -31,18 +37,18 @@ class QwenEnrollmentStrategy(EnrollmentStrategy):
             "model": "qwen-voice-enrollment",
             "input": {
                 "action": "create",
-                "target_model": tts_model,
+                "target_model": target_model,
                 "preferred_name": "voice",
                 "audio": {"data": data_uri},
             },
         }
-        return await _call_dashscope_enrollment(api_key, payload)
+        return await _call_dashscope_enrollment(api_key, payload, endpoint=endpoint)
 
 
 class CosyVoiceEnrollmentStrategy(EnrollmentStrategy):
     """CosyVoice voice enrollment: audio URL, action=create_voice."""
 
-    async def enroll(self, audio_bytes: bytes, mime_type: str, api_key: str, tts_model: str, voice_name: str = "") -> str:
+    async def enroll(self, audio_bytes: bytes, mime_type: str, api_key: str, tts_model: str, voice_name: str = "", endpoint: str | None = None) -> str:
         b64 = base64.b64encode(audio_bytes).decode("utf-8")
         data_uri = f"data:{mime_type};base64,{b64}"
 
@@ -66,7 +72,7 @@ class VolcengineEnrollmentStrategy(EnrollmentStrategy):
     POLL_INTERVAL = 3  # seconds
     MAX_POLL_SECONDS = 120
 
-    async def enroll(self, audio_bytes: bytes, mime_type: str, api_key: str, tts_model: str, voice_name: str = "") -> str:
+    async def enroll(self, audio_bytes: bytes, mime_type: str, api_key: str, tts_model: str, voice_name: str = "", endpoint: str | None = None) -> str:
         return await self._voice_clone(audio_bytes, mime_type, api_key, voice_name)
 
     async def _voice_clone(self, audio_bytes: bytes, mime_type: str, api_key: str, voice_name: str) -> str:
@@ -186,15 +192,22 @@ async def enroll_voice(
     api_key: str,
     tts_model: str | None = None,
     voice_name: str = "",
+    *,
+    target_model: str | None = None,
+    endpoint: str | None = None,
 ) -> str:
     """Upload audio to voice enrollment service, return voice_id."""
-    tts_model = tts_model or os.environ.get("SEED_TTS_VC_MODEL", "qwen3-tts-vc-realtime-2026-01-15")
-    strategy = _get_enrollment_strategy(tts_model)
-    return await strategy.enroll(audio_bytes, mime_type, api_key, tts_model, voice_name)
+    selected_model = target_model or tts_model or os.environ.get(
+        "SEED_TTS_VC_MODEL", "qwen3-tts-vc-realtime-2026-01-15"
+    )
+    strategy = _get_enrollment_strategy(selected_model)
+    return await strategy.enroll(
+        audio_bytes, mime_type, api_key, selected_model, voice_name, endpoint
+    )
 
 
-async def _call_dashscope_enrollment(api_key: str, payload: dict) -> str:
-    api_url = os.environ.get(
+async def _call_dashscope_enrollment(api_key: str, payload: dict, *, endpoint: str | None = None) -> str:
+    api_url = endpoint or os.environ.get(
         "QWEN_VOICE_ENROLLMENT_API_URL",
         "https://dashscope.aliyuncs.com/api/v1/services/audio/tts/customization",
     )

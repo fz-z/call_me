@@ -230,6 +230,8 @@ class VoiceRuntimeBindingOut(BaseModel):
     voice_pool_id: str
     runtime_kind: str
     runtime_config_id: str
+    runtime_config_name: str
+    runtime_config_model: str
     created_at: str
 
 
