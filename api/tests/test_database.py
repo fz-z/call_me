@@ -41,6 +41,91 @@ class TestDatabaseInit:
         assert count == 1
         conn.close()
 
+    def test_realtime_schema_migrations_are_idempotent(self, clean_db):
+        """Realtime schema additions survive repeated startup migrations."""
+        init_db()
+        conn = _sync_conn()
+        try:
+            tables = {
+                row["name"]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            assert {"realtime_configs", "voice_runtime_bindings"} <= tables
+
+            agent_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(agents)").fetchall()
+            }
+            assert {"runtime_mode", "realtime_config_id"} <= agent_columns
+
+            call_log_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(call_logs)").fetchall()
+            }
+            assert {
+                "runtime_mode",
+                "provider",
+                "model",
+                "failure_stage",
+                "failure_reason",
+            } <= call_log_columns
+
+            admin = conn.execute(
+                "SELECT id FROM users WHERE username = ?", ("admin",)
+            ).fetchone()
+            conn.execute(
+                "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                ("pipeline-default-agent", "Pipeline", "Cherry", "", admin["id"], "2024-01-01"),
+            )
+            conn.commit()
+            runtime_mode = conn.execute(
+                "SELECT runtime_mode FROM agents WHERE id = ?", ("pipeline-default-agent",)
+            ).fetchone()["runtime_mode"]
+            assert runtime_mode == "pipeline"
+        finally:
+            conn.close()
+
+    def test_backfills_tts_runtime_bindings_without_duplicates(self, clean_db):
+        conn = _sync_conn()
+        try:
+            link = conn.execute(
+                "SELECT v.id AS voice_id, v.voice_id AS provider_voice_id, "
+                "vl.tts_config_id FROM voices v "
+                "JOIN voice_tts_links vl ON vl.voice_id = v.id LIMIT 1"
+            ).fetchone()
+            assert link is not None
+            voice = link
+            tts_config_id = link["tts_config_id"]
+            conn.execute(
+                "DELETE FROM voice_runtime_bindings "
+                "WHERE voice_pool_id = ? AND runtime_kind = 'tts' AND runtime_config_id = ?",
+                (voice["voice_id"], tts_config_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        init_db()
+        init_db()
+
+        conn = _sync_conn()
+        try:
+            bindings = conn.execute(
+                "SELECT runtime_kind, runtime_config_id, provider_voice_id "
+                "FROM voice_runtime_bindings WHERE voice_pool_id = ?",
+                (voice["voice_id"],),
+            ).fetchall()
+            assert [dict(binding) for binding in bindings] == [
+                {
+                    "runtime_kind": "tts",
+                    "runtime_config_id": tts_config_id,
+                    "provider_voice_id": voice["provider_voice_id"],
+                }
+            ]
+        finally:
+            conn.close()
+
     def test_foreign_key_enforcement(self, clean_db):
         conn = _sync_conn()
         import uuid

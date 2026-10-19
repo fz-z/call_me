@@ -350,6 +350,84 @@ def init_db():
         except Exception:
             pass
 
+        # Migration: realtime model configuration pool
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS realtime_configs (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL,
+                api_key TEXT NOT NULL DEFAULT '',
+                endpoint TEXT NOT NULL DEFAULT '',
+                region TEXT NOT NULL DEFAULT '',
+                capabilities_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            )
+        """)
+
+        # Migration: provider-specific voice bindings for TTS and realtime runtimes.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS voice_runtime_bindings (
+                id TEXT PRIMARY KEY,
+                voice_pool_id TEXT NOT NULL REFERENCES voices(id) ON DELETE CASCADE,
+                runtime_kind TEXT NOT NULL,
+                runtime_config_id TEXT NOT NULL,
+                provider_voice_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(voice_pool_id, runtime_kind, runtime_config_id)
+            )
+        """)
+
+        # Migration: per-agent runtime selection. Existing agents retain pipeline mode.
+        try:
+            conn.execute(
+                "ALTER TABLE agents ADD COLUMN runtime_mode TEXT NOT NULL DEFAULT 'pipeline'"
+            )
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute(
+                "ALTER TABLE agents ADD COLUMN realtime_config_id TEXT "
+                "REFERENCES realtime_configs(id) ON DELETE SET NULL"
+            )
+        except sqlite3.OperationalError:
+            pass
+
+        # Migrate the legacy TTS links into runtime bindings. INSERT OR IGNORE
+        # makes startup safe to repeat without changing existing bindings.
+        for link in conn.execute("""
+            SELECT v.id AS voice_pool_id, v.voice_id AS provider_voice_id,
+                   vl.tts_config_id
+            FROM voice_tts_links vl
+            JOIN voices v ON v.id = vl.voice_id
+        """).fetchall():
+            conn.execute(
+                "INSERT OR IGNORE INTO voice_runtime_bindings "
+                "(id, voice_pool_id, runtime_kind, runtime_config_id, provider_voice_id, created_at) "
+                "VALUES (?, ?, 'tts', ?, ?, ?)",
+                (
+                    str(uuid.uuid4()),
+                    link["voice_pool_id"],
+                    link["tts_config_id"],
+                    link["provider_voice_id"],
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+
+        # Migration: runtime diagnostic fields on call history.
+        for column, definition in (
+            ("runtime_mode", "TEXT NOT NULL DEFAULT 'pipeline'"),
+            ("provider", "TEXT"),
+            ("model", "TEXT"),
+            ("failure_stage", "TEXT"),
+            ("failure_reason", "TEXT"),
+        ):
+            try:
+                conn.execute(f"ALTER TABLE call_logs ADD COLUMN {column} {definition}")
+            except sqlite3.OperationalError:
+                pass
+
         conn.commit()
     finally:
         conn.close()

@@ -47,6 +47,8 @@ class AgentCreate(BaseModel):
     voice_pool_id: str
     model_config_id: Optional[str] = None
     tts_config_id: Optional[str] = None
+    runtime_mode: str = "pipeline"
+    realtime_config_id: Optional[str] = None
     photo_url: Optional[str] = None
 
 
@@ -56,6 +58,8 @@ class AgentUpdate(BaseModel):
     model_config_id: Optional[str] = None
     voice_pool_id: Optional[str] = None
     tts_config_id: Optional[str] = None
+    runtime_mode: Optional[str] = None
+    realtime_config_id: Optional[str] = None
     photo_url: Optional[str] = None
 
 
@@ -69,6 +73,8 @@ class AgentOut(BaseModel):
     source_agent_id: Optional[str] = None
     model_config_id: Optional[str] = None
     tts_config_id: Optional[str] = None
+    runtime_mode: str = "pipeline"
+    realtime_config_id: Optional[str] = None
     photo_url: Optional[str] = None
     created_at: str
 
@@ -172,6 +178,40 @@ class TtsConfigOut(BaseModel):
     created_at: str
 
 
+class RealtimeConfigCreate(BaseModel):
+    name: str
+    provider: str
+    model: str
+    api_key: Optional[str] = None
+    api_key_id: Optional[str] = None
+    endpoint: str = ""
+    region: str = ""
+    capabilities_json: str = "{}"
+
+
+class RealtimeConfigUpdate(BaseModel):
+    name: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+    api_key_id: Optional[str] = None
+    endpoint: Optional[str] = None
+    region: Optional[str] = None
+    capabilities_json: Optional[str] = None
+
+
+class RealtimeConfigOut(BaseModel):
+    id: str
+    name: str
+    provider: str
+    model: str
+    api_key_id: Optional[str] = None
+    endpoint: str
+    region: str
+    capabilities_json: str
+    created_at: str
+
+
 class VoiceTtsLinkRequest(BaseModel):
     tts_config_id: str
 
@@ -179,9 +219,24 @@ class VoiceTtsLinkRequest(BaseModel):
 class VoiceOut(BaseModel):
     id: str
     name: str
-    voice_id: str
     type: str
     created_at: str
+
+
+class VoiceRuntimeBindingOut(BaseModel):
+    """A binding summary safe for administrative API responses."""
+
+    id: str
+    voice_pool_id: str
+    runtime_kind: str
+    runtime_config_id: str
+    created_at: str
+
+
+class VoiceRuntimeBindingCreate(BaseModel):
+    runtime_kind: str
+    runtime_config_id: str
+    provider_voice_id: str
 
 
 class VoiceCreate(BaseModel):
@@ -231,6 +286,11 @@ class CallLogOut(BaseModel):
     duration_seconds: Optional[int] = None
     status: str
     transcript: Optional[str] = None
+    runtime_mode: str = "pipeline"
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    failure_stage: Optional[str] = None
+    failure_reason: Optional[str] = None
 
 
 class CallLogEndRequest(BaseModel):

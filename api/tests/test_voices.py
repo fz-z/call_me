@@ -26,6 +26,13 @@ def _get_first_voice_and_tts():
 
 
 class TestVoiceAuditionText:
+    def test_voice_list_hides_provider_voice_id(self, clean_db):
+        resp = client.get("/api/admin/voices", headers=_admin_header())
+
+        assert resp.status_code == 200
+        assert resp.json()
+        assert "voice_id" not in resp.json()[0]
+
     def test_update_audition_text(self, clean_db):
         voice, _, _ = _get_first_voice_and_tts()
         if not voice:
