@@ -61,14 +61,14 @@
           <option value="">-- 选择实时模型 --</option>
           <option v-for="config in cloneableRealtimeConfigs" :key="config.id" :value="config.id">{{ config.name }} ({{ config.model }})</option>
         </select>
-        <input type="file" accept=".wav,.mp3,.m4a,audio/wav,audio/mpeg,audio/mp4" @change="(event) => realtimeVoiceForm.audioFile = event.target.files[0]" required />
+        <input type="file" accept=".wav,.mp3,.m4a,audio/wav,audio/mpeg,audio/mp4" @change="(event) => onRealtimeAudioSelected(event, realtimeVoiceForm, realtimeVoiceError)" required />
         <label class="consent"><input v-model="realtimeVoiceForm.authorizationConfirmed" type="checkbox" /> 我确认有权使用这段参考音频进行音色复刻。</label>
         <p class="hint">支持 WAV、MP3、M4A，最大 10 MB；建议 10～20 秒、最长 60 秒，并包含至少 5 秒清晰人声。创建后只绑定所选实时模型，不会创建或绑定 TTS。</p>
         <p v-if="!cloneableRealtimeConfigs.length" class="error">请先在“实时模型”中创建并启用支持音色复刻的配置。</p>
         <p v-if="realtimeVoiceError" class="error">{{ realtimeVoiceError }}</p>
         <div class="modal-actions">
           <button type="button" class="btn-ghost" @click="showRealtimeUpload = false">取消</button>
-          <button class="btn btn-primary" :disabled="realtimeVoiceSaving || !cloneableRealtimeConfigs.length || !realtimeVoiceForm.audioFile || !realtimeVoiceForm.authorizationConfirmed">{{ realtimeVoiceSaving ? '创建中…' : '创建音色' }}</button>
+          <button class="btn btn-primary" :disabled="realtimeVoiceSaving || realtimeAudioValidating || !cloneableRealtimeConfigs.length || !realtimeVoiceForm.audioFile || !realtimeVoiceForm.authorizationConfirmed">{{ realtimeVoiceSaving ? '创建中…' : realtimeAudioValidating ? '检查音频时长…' : '创建音色' }}</button>
         </div>
       </form>
     </div>
@@ -87,9 +87,9 @@
         <div v-for="binding in editForm.runtimeBindings" :key="binding.id" class="binding-row"><span class="tag tag-realtime">{{ binding.runtime_config_name }} ({{ binding.runtime_config_model }})</span></div>
         <p v-if="!realtimeConfigs.length" class="muted">请先在“实时模型”创建支持 voice_clone 的配置。</p>
         <select v-model="editForm.realtimeConfigId"><option value="">-- 选择要克隆到的实时模型 --</option><option v-for="config in cloneableRealtimeConfigs" :key="config.id" :value="config.id">{{ config.name }} ({{ config.model }})</option></select>
-        <input type="file" accept="audio/*" @change="(event) => editForm.realtimeAudioFile = event.target.files[0]" />
+        <input type="file" accept="audio/*" @change="(event) => onRealtimeAudioSelected(event, editForm, editError, 'realtimeAudioFile')" />
         <label class="consent"><input v-model="editForm.authorizationConfirmed" type="checkbox" /> 我确认有权使用这段参考音频进行该模型的音色复刻。</label>
-        <button type="button" class="btn btn-primary" :disabled="bindingLoading || !canCreateRealtimeBinding" @click="createRealtimeBinding">{{ bindingLoading ? '克隆中…' : '创建/更新实时绑定' }}</button>
+        <button type="button" class="btn btn-primary" :disabled="bindingLoading || realtimeAudioValidating || !canCreateRealtimeBinding" @click="createRealtimeBinding">{{ bindingLoading ? '克隆中…' : realtimeAudioValidating ? '检查音频时长…' : '创建/更新实时绑定' }}</button>
         <p class="hint">实时模型的音色与模型配置一一对应；不会复用经典 TTS 的提供商音色 ID。</p>
 
         <p v-if="editError" class="error">{{ editError }}</p>
@@ -114,10 +114,12 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import api from '../api.js';
+import { getRealtimeAudioDurationError } from '../utils/audioDuration.js';
 
 const voices = ref([]); const ttsConfigs = ref([]); const realtimeConfigs = ref([]);
 const showUpload = ref(false); const voiceName = ref(''); const selectedTtsConfigId = ref(''); const uploadAudioFile = ref(null); const uploading = ref(false); const uploadError = ref('');
 const showRealtimeUpload = ref(false); const realtimeVoiceSaving = ref(false); const realtimeVoiceError = ref('');
+const realtimeAudioValidating = ref(false);
 const realtimeVoiceForm = reactive({ name: '', configId: '', audioFile: null, authorizationConfirmed: false });
 const showEdit = ref(false); const editLoading = ref(false); const bindingLoading = ref(false); const editError = ref('');
 const editForm = reactive({ id: '', name: '', audition_text: '', ttsConfigs: [], runtimeBindings: [], addTtsId: '', realtimeConfigId: '', realtimeAudioFile: null, authorizationConfirmed: false });
@@ -130,6 +132,40 @@ const availableTtsConfigs = computed(() => ttsConfigs.value.filter((config) => !
 const canCreateRealtimeBinding = computed(() => editForm.realtimeConfigId && editForm.realtimeAudioFile && editForm.authorizationConfirmed);
 
 function supportsVoiceClone(config) { try { return JSON.parse(config.capabilities_json || '{}').voice_clone === true; } catch (_) { return false; } }
+
+async function onRealtimeAudioSelected(event, form, errorRef, fileField = 'audioFile') {
+  const file = event.target.files?.[0] || null;
+  form[fileField] = null;
+  errorRef.value = '';
+  if (!file) return;
+
+  const audioUrl = URL.createObjectURL(file);
+  const audio = new Audio();
+  audio.preload = 'metadata';
+  realtimeAudioValidating.value = true;
+  try {
+    const duration = await new Promise((resolve, reject) => {
+      audio.onloadedmetadata = () => resolve(audio.duration);
+      audio.onerror = () => reject(new Error('无法读取音频时长'));
+      audio.src = audioUrl;
+    });
+    const durationError = getRealtimeAudioDurationError(duration);
+    if (durationError) {
+      errorRef.value = durationError;
+      event.target.value = '';
+      return;
+    }
+    form[fileField] = file;
+  } catch (_) {
+    errorRef.value = getRealtimeAudioDurationError(Number.NaN);
+    event.target.value = '';
+  } finally {
+    audio.removeAttribute('src');
+    audio.load();
+    URL.revokeObjectURL(audioUrl);
+    realtimeAudioValidating.value = false;
+  }
+}
 
 async function load() {
   const [voiceResult, agentResult, ttsResult, realtimeResult] = await Promise.all([api.get('/admin/voices'), api.get('/admin/agents'), api.get('/admin/tts-configs'), api.get('/admin/realtime-configs')]);

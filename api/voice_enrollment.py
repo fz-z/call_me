@@ -24,7 +24,7 @@ class EnrollmentStrategy:
 
 
 class QwenEnrollmentStrategy(EnrollmentStrategy):
-    """Qwen voice enrollment from a temporary, publicly reachable audio URL."""
+    """Qwen-Audio voice enrollment from a temporary, publicly reachable URL."""
 
     async def enroll(
         self, audio_bytes: bytes, mime_type: str, api_key: str, target_model: str,
@@ -43,6 +43,28 @@ class QwenEnrollmentStrategy(EnrollmentStrategy):
             raise ValueError("Qwen voice enrollment requires a publicly reachable audio URL")
         # The enrollment API requires a publicly reachable URL; it does not
         # accept a data URI for this operation.
+        return await _call_dashscope_enrollment(api_key, payload, endpoint=endpoint)
+
+
+class QwenTtsEnrollmentStrategy(EnrollmentStrategy):
+    """Qwen3-TTS voice enrollment (different API from Qwen-Audio)."""
+
+    async def enroll(
+        self, audio_bytes: bytes, mime_type: str, api_key: str, target_model: str,
+        voice_name: str = "", endpoint: str | None = None, audio_url: str | None = None,
+    ) -> str:
+        if not audio_url:
+            raise ValueError("Qwen3-TTS voice enrollment requires a publicly reachable audio URL")
+        preferred_name = re.sub(r"[^a-zA-Z0-9_]", "", voice_name)[:16] or "voice"
+        payload = {
+            "model": "qwen-voice-enrollment",
+            "input": {
+                "action": "create",
+                "target_model": target_model,
+                "preferred_name": preferred_name,
+                "audio": {"data": audio_url},
+            },
+        }
         return await _call_dashscope_enrollment(api_key, payload, endpoint=endpoint)
 
 
@@ -183,6 +205,8 @@ def _get_enrollment_strategy(tts_model: str | None) -> EnrollmentStrategy:
         return CosyVoiceEnrollmentStrategy()
     if m.startswith("volcengine") or m.startswith("seed-icl") or m.startswith("bytedance"):
         return VolcengineEnrollmentStrategy()
+    if m.startswith("qwen3-tts"):
+        return QwenTtsEnrollmentStrategy()
     return QwenEnrollmentStrategy()
 
 

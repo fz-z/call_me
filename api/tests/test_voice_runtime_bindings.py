@@ -95,7 +95,7 @@ def test_creating_realtime_binding_uses_exact_config_and_sanitizes_response(clea
     config = _create_realtime_config()
     captured = {}
 
-    async def fake_enroll(audio_bytes, mime_type, api_key, tts_model=None, voice_name="", *, target_model=None, endpoint=None):
+    async def fake_enroll(audio_bytes, mime_type, api_key, tts_model=None, voice_name="", *, target_model=None, endpoint=None, audio_url=None):
         captured.update(
             api_key=api_key,
             target_model=target_model,
@@ -140,7 +140,7 @@ def test_creating_realtime_binding_converts_workspace_websocket_to_enrollment_ht
 
     captured = {}
 
-    async def fake_enroll(audio_bytes, mime_type, api_key, tts_model=None, voice_name="", *, target_model=None, endpoint=None):
+    async def fake_enroll(audio_bytes, mime_type, api_key, tts_model=None, voice_name="", *, target_model=None, endpoint=None, audio_url=None):
         captured["endpoint"] = endpoint
         return "private-realtime-provider-voice"
 
