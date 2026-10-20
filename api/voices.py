@@ -2,6 +2,7 @@ import uuid
 import os
 import json
 from datetime import datetime, timezone
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 
@@ -34,6 +35,35 @@ def _voice_clone_is_supported(capabilities_json: str) -> bool:
     except json.JSONDecodeError:
         return False
     return isinstance(capabilities, dict) and capabilities.get("voice_clone") is True
+
+
+def _enrollment_endpoint(realtime_endpoint: str | None) -> str | None:
+    """Map a Model Studio realtime WebSocket URL to its enrollment HTTP API.
+
+    The endpoint stored on a realtime configuration is for conversations, e.g.
+    ``wss://<workspace>.../api-ws/v1/realtime``. Voice enrollment is a separate
+    REST operation in that same workspace, so POSTing to the WebSocket URL can
+    never create a cloned voice.
+    """
+    if not realtime_endpoint:
+        return None
+
+    parsed = urlsplit(realtime_endpoint)
+    if (
+        parsed.scheme in {"ws", "wss"}
+        and parsed.path.rstrip("/") == "/api-ws/v1/realtime"
+        and parsed.netloc
+    ):
+        return urlunsplit(
+            (
+                "https" if parsed.scheme == "wss" else "http",
+                parsed.netloc,
+                "/api/v1/services/audio/tts/customization",
+                "",
+                "",
+            )
+        )
+    return realtime_endpoint
 
 
 @router.get("", response_model=list[VoiceOut])
@@ -236,7 +266,7 @@ async def create_realtime_binding(
                 config["resolved_api_key"],
                 voice_name=voice["name"],
                 target_model=config["model"],
-                endpoint=config["endpoint"] or None,
+                endpoint=_enrollment_endpoint(config["endpoint"]),
             )
         except Exception:
             raise HTTPException(status_code=502, detail="Voice enrollment failed")

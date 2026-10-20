@@ -119,8 +119,44 @@ def test_creating_realtime_binding_uses_exact_config_and_sanitizes_response(clea
     assert "private-realtime-provider-voice" not in response.text
     assert captured["api_key"] == "realtime-secret"
     assert captured["target_model"] == "qwen-audio-3.1-realtime-plus"
+    # A realtime configuration stores its WebSocket endpoint. Voice enrollment
+    # is an HTTP API in the same Model Studio workspace, never the WebSocket.
     assert captured["endpoint"] == "https://enrollment.example.test"
     assert captured["voice_name"]
+
+
+def test_creating_realtime_binding_converts_workspace_websocket_to_enrollment_http_url(clean_db, monkeypatch):
+    voice_id = _first_voice_id()
+    config = _create_realtime_config()
+    workspace_ws = "wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime"
+    from database import _sync_conn
+
+    db = _sync_conn()
+    try:
+        db.execute("UPDATE realtime_configs SET endpoint = ? WHERE id = ?", (workspace_ws, config["id"]))
+        db.commit()
+    finally:
+        db.close()
+
+    captured = {}
+
+    async def fake_enroll(audio_bytes, mime_type, api_key, tts_model=None, voice_name="", *, target_model=None, endpoint=None):
+        captured["endpoint"] = endpoint
+        return "private-realtime-provider-voice"
+
+    monkeypatch.setattr("voices.enroll_voice", fake_enroll)
+    response = client.post(
+        f"/api/admin/voices/{voice_id}/realtime-bindings",
+        headers=_admin_header(),
+        data={"realtime_config_id": config["id"], "authorization_confirmed": "true"},
+        files={"audio_file": ("reference.wav", b"audio", "audio/wav")},
+    )
+
+    assert response.status_code == 200, response.text
+    assert captured["endpoint"] == (
+        "https://workspace.cn-beijing.maas.aliyuncs.com/"
+        "api/v1/services/audio/tts/customization"
+    )
 
 
 def test_binding_resolver_keeps_legacy_tts_links_and_never_falls_back_to_other_config(clean_db):
