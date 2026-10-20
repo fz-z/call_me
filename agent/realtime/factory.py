@@ -30,3 +30,14 @@ def create_realtime_provider(config: RealtimeRuntimeConfig) -> Any:
         raise
     except Exception as exc:
         raise RealtimeRuntimeError(f"Failed to initialize realtime provider: {config.provider}") from exc
+
+
+def _build_qwen(config: RealtimeRuntimeConfig) -> Any:
+    # Import lazily so the adapter remains usable in isolated tests without
+    # creating a provider at package-import time.
+    from .qwen import QwenRealtimeAdapter
+
+    return QwenRealtimeAdapter(config)
+
+
+register_realtime_provider("qwen", _build_qwen)
