@@ -23,6 +23,9 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from qwen_asr_realtime_stt import QwenASRRealtimeSTT
 from qwen_tts import QwenTTS
+from realtime.base import RealtimeEvent, RealtimeRuntimeConfig, RealtimeRuntimeError
+from realtime.bridge import LiveKitAudioBridge
+from realtime.factory import create_realtime_provider
 
 load_dotenv(".env")
 logger = logging.getLogger("agent")
@@ -56,7 +59,9 @@ def _sanitize_agent_config_for_log(agent_config_str: str | None) -> str | None:
     def redact(value):
         if isinstance(value, dict):
             return {
-                key: "***" if key.lower() in {"api_key", "apikey", "voice_id", "voiceid"} else redact(val)
+                key: "***" if key.lower() in {
+                    "api_key", "apikey", "voice_id", "voiceid", "provider_voice_id", "providervoiceid",
+                } else redact(val)
                 for key, val in value.items()
             }
         if isinstance(value, list):
@@ -64,6 +69,100 @@ def _sanitize_agent_config_for_log(agent_config_str: str | None) -> str | None:
         return value
 
     return json.dumps(redact(config), ensure_ascii=False)
+
+
+def _parse_worker_metadata(raw_metadata: str | None) -> dict[str, str]:
+    """Return the small, non-secret dispatch contract embedded in a LK token.
+
+    Provider credentials and voice bindings are intentionally fetched from the
+    internal Worker endpoint after dispatch.  Do not add defaults here: a bad
+    token must not accidentally select a public environment configuration.
+    """
+    if not raw_metadata:
+        raise RuntimeError("Worker dispatch metadata is missing")
+    try:
+        parsed = json.loads(raw_metadata)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Worker dispatch metadata is invalid") from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError("Worker dispatch metadata is invalid")
+    metadata = {key: parsed.get(key) for key in ("agent_id", "call_log_id", "runtime_mode")}
+    if any(not isinstance(value, str) or not value.strip() for value in metadata.values()):
+        raise RuntimeError("Worker dispatch metadata is incomplete")
+    if metadata["runtime_mode"] not in {"pipeline", "realtime"}:
+        raise RuntimeError("Worker dispatch mode is unsupported")
+    return metadata
+
+
+def _safe_failure_reason(error: Exception) -> str:
+    """Keep Worker callback diagnostics useful without serializing secrets."""
+    if isinstance(error, RealtimeRuntimeError):
+        return "realtime_provider_error"
+    return "worker_runtime_error"
+
+
+def _write_call_log_end(
+    call_log_id: str,
+    *,
+    status: str,
+    duration_seconds: int,
+    transcript_turns: list[dict] | None = None,
+    failure_stage: str | None = None,
+    failure_reason: str | None = None,
+) -> None:
+    """Best-effort call log callback. Values are all diagnostics-safe."""
+    api_base = os.getenv("API_BASE_URL", "http://api:8000")
+    url = f"{api_base}/api/call/admin/call-logs/{call_log_id}/end"
+    payload = {
+        "status": status,
+        "duration_seconds": duration_seconds,
+        "transcript": json.dumps(transcript_turns or [], ensure_ascii=False),
+        "failure_stage": failure_stage,
+        "failure_reason": failure_reason,
+    }
+    try:
+        data = json.dumps(payload).encode()
+        req = urllib.request.Request(url, data=data, headers=_worker_headers(), method="PATCH")
+        urllib.request.urlopen(req, timeout=5)
+        logger.info("Call log %s ended, status=%s, turns=%s", call_log_id, status, len(transcript_turns or []))
+    except Exception:
+        # Do not interpolate an HTTP exception here: proxy messages sometimes
+        # include request headers and would turn a logging failure into a leak.
+        logger.warning("Failed to update call log %s", call_log_id)
+
+
+def _register_call_log_completion(ctx: JobContext, call_log_id: str, transcript_turns: list[dict], started_at: float):
+    """Register idempotent room-end callbacks shared by pipeline and realtime."""
+    call_ended = False
+
+    def end_call_log(
+        *,
+        status: str = "completed",
+        failure_stage: str | None = None,
+        failure_reason: str | None = None,
+    ) -> None:
+        nonlocal call_ended
+        if call_ended:
+            return
+        call_ended = True
+        _write_call_log_end(
+            call_log_id,
+            status=status,
+            duration_seconds=int(time.time() - started_at),
+            transcript_turns=transcript_turns,
+            failure_stage=failure_stage,
+            failure_reason=failure_reason,
+        )
+
+    @ctx.room.on("participant_disconnected")
+    def _on_participant_left(participant):
+        end_call_log()
+
+    @ctx.room.on("disconnected")
+    def _on_disconnected():
+        end_call_log()
+
+    return end_call_log
 
 
 class CallMeAgent(Agent):
@@ -222,76 +321,18 @@ def prewarm(proc: JobProcess):
 server.setup_fnc = prewarm
 
 
-@server.rtc_session()
-async def entrypoint(ctx: JobContext):
+async def run_pipeline_call(ctx: JobContext, runtime: dict, call_log_id: str) -> None:
+    """Run the existing STT → LLM → TTS session using Worker-private runtime."""
     ctx.log_context_fields = {"room": ctx.room.name}
 
     t0 = time.time()
-    connect_task = None
     _bg_tasks: list[asyncio.Task] = []
-
-    async def _cleanup():
-        for t in _bg_tasks:
-            if not t.done():
-                t.cancel()
-        try:
-            await ctx.room.disconnect()
-        except Exception:
-            pass
-
-    # Read agent_config from dispatch metadata (fast path) or fall back to polling
-    agent_config_str = ctx.job.metadata or None
-    config = {}
-
-    if agent_config_str:
-        t1 = time.time()
-        logger.info(f"[timing] got config from metadata at {t1 - t0:.2f}s, connecting in parallel")
-        config = json.loads(agent_config_str)
-        system_prompt = config.get("system_prompt", os.getenv("DEFAULT_SYSTEM_PROMPT", "你是一位贴心的语音智能助手。"))
-        voice_id = config.get("voice_id")
-        call_log_id = config.get("call_log_id")
-        # Connect to room — can run concurrently with LLM/STT/TTS init below
-        connect_task = asyncio.create_task(ctx.connect())
-    else:
-        # Fallback: connect first, then poll user attributes
-        await ctx.connect()
-        t1 = time.time()
-        logger.info(f"[timing] ctx.connect (fallback): {t1 - t0:.2f}s")
-        # Poll for up to 15s
-        for _ in range(30):
-            for p in ctx.room.remote_participants.values():
-                attrs = p.attributes
-                if attrs and "agent_config" in attrs:
-                    agent_config_str = attrs["agent_config"]
-                    break
-            if agent_config_str:
-                break
-            await asyncio.sleep(0.5)
-        t2 = time.time()
-        logger.info(f"[timing] agent_config poll: {t2 - t1:.2f}s (total {t2 - t0:.2f}s)")
-        if not agent_config_str:
-            logger.warning("No agent_config in participant attributes, using defaults")
-            system_prompt = os.getenv("DEFAULT_SYSTEM_PROMPT", "你是一位贴心的语音智能助手。")
-            call_log_id = None
-            voice_id = None
-        else:
-            config = json.loads(agent_config_str)
-            system_prompt = config.get("system_prompt", os.getenv("DEFAULT_SYSTEM_PROMPT", "你是一位贴心的语音智能助手。"))
-            voice_id = config.get("voice_id")
-            call_log_id = config.get("call_log_id")
-
-    agent_id = config.get("agent_id")
-    if agent_id and not config.get("model_config"):
-        try:
-            runtime = await asyncio.to_thread(_fetch_runtime_secrets, agent_id)
-            if runtime.get("model_config"):
-                config["model_config"] = runtime["model_config"]
-            if runtime.get("tts_config"):
-                config["tts_config"] = runtime["tts_config"]
-            if not voice_id and runtime.get("voice_id"):
-                voice_id = runtime["voice_id"]
-        except Exception as e:
-            logger.warning(f"Failed to fetch runtime secrets for agent {agent_id}: {e}")
+    # Keep the old metadata fast path: overlap the one room connection with
+    # provider initialization, but never create a second connection.
+    connect_task = asyncio.create_task(ctx.connect())
+    config = runtime
+    system_prompt = config.get("system_prompt", os.getenv("DEFAULT_SYSTEM_PROMPT", "你是一位贴心的语音智能助手。"))
+    voice_id = config.get("voice_id")
 
     # Global constraint: keep responses short for voice conversation
     system_prompt = system_prompt.strip() + " 请用口语简洁回答，控制在2-3句话以内。"
@@ -369,16 +410,12 @@ async def entrypoint(ctx: JobContext):
     else:
         tts_provider = tc_provider
 
-    # If using metadata path, await the connect task now (parallelized with LLM/STT/TTS init)
-    if connect_task is not None:
-        await connect_task
-        connect_task = None
-        t_connect = time.time()
-        logger.info(f"[timing] ctx.connect (parallel): {t_connect - t0:.2f}s total")
+    await connect_task
+    t_connect = time.time()
+    logger.info(f"[timing] ctx.connect (parallel): {t_connect - t0:.2f}s total")
 
     logger.info("pipeline config", extra={
         "room": ctx.room.name,
-        "agent_config": _sanitize_agent_config_for_log(agent_config_str),
         "llm_provider": llm_provider,
         "tts_provider": tts_provider,
     })
@@ -428,43 +465,9 @@ async def entrypoint(ctx: JobContext):
 
     session.on("conversation_item_added", _on_transcript_item)
 
-    # Register call log callback BEFORE session.start, so it fires immediately
-    # when the user disconnects (participant_disconnected) rather than waiting
-    # for the room-level "disconnected" event which can be delayed.
-    if call_log_id:
-        _call_ended = False
-        started_at = time.time()
-
-        def _end_call_log():
-            nonlocal _call_ended
-            if _call_ended:
-                return
-            _call_ended = True
-            duration = int(time.time() - started_at)
-            api_base = os.getenv("API_BASE_URL", "http://api:8000")
-            url = f"{api_base}/api/call/admin/call-logs/{call_log_id}/end"
-            try:
-                payload = {
-                    "status": "completed",
-                    "duration_seconds": duration,
-                    "transcript": json.dumps(transcript_turns, ensure_ascii=False),
-                }
-                data = json.dumps(payload).encode()
-                req = urllib.request.Request(url, data=data, headers=_worker_headers(), method="PATCH")
-                urllib.request.urlopen(req, timeout=5)
-                logger.info(f"Call log {call_log_id} ended, duration={duration}s, turns={len(transcript_turns)}")
-            except Exception as e:
-                logger.warning(f"Failed to update call_log {call_log_id}: {e}")
-
-        @ctx.room.on("participant_disconnected")
-        def _on_participant_left(participant):
-            # User participant left — mark call as ended
-            _end_call_log()
-
-        @ctx.room.on("disconnected")
-        def _on_disconnected():
-            # Safety net: room-level disconnect
-            _end_call_log()
+    # Register before session.start so a fast participant departure is still
+    # captured. Realtime uses the same helper below.
+    _register_call_log_completion(ctx, call_log_id, transcript_turns, time.time())
 
     await session.start(
         agent=CallMeAgent(system_prompt=system_prompt),
@@ -521,6 +524,126 @@ async def entrypoint(ctx: JobContext):
 
     _greeting_task = asyncio.create_task(_speak_greeting())
     _bg_tasks.append(_greeting_task)
+
+
+def _is_audio_track(track) -> bool:
+    kind = getattr(track, "kind", None)
+    audio_kind = getattr(getattr(rtc, "TrackKind", None), "KIND_AUDIO", None)
+    return kind == audio_kind or str(kind).lower() in {"audio", "trackkind.kind_audio"}
+
+
+async def run_realtime_call(ctx: JobContext, runtime: dict, call_log_id: str) -> list[dict]:
+    """Bridge one full-duplex provider session to LiveKit without pipeline fallback."""
+    realtime = runtime.get("realtime_config")
+    required = ("provider", "model", "endpoint", "api_key", "voice_id")
+    if not isinstance(realtime, dict) or any(not realtime.get(field) for field in required):
+        raise RealtimeRuntimeError("Realtime runtime configuration is incomplete")
+
+    config = RealtimeRuntimeConfig(
+        provider=realtime["provider"],
+        model=realtime["model"],
+        endpoint=realtime["endpoint"],
+        api_key=realtime["api_key"],
+        provider_voice_id=realtime["voice_id"],
+        system_prompt=runtime.get("system_prompt") or "",
+    )
+    logger.info("Starting realtime call provider=%s model=%s", config.provider, config.model)
+    started_at = time.time()
+    transcript_turns: list[dict] = []
+    adapter = create_realtime_provider(config)
+
+    async def _on_realtime_event(event: RealtimeEvent) -> None:
+        if "transcript" not in event.type:
+            return
+        data = event.data if isinstance(event.data, dict) else {}
+        text = data.get("transcript") or data.get("delta")
+        if not isinstance(text, str) or not text.strip():
+            return
+        role = "assistant" if event.type.startswith("response.") else "user"
+        transcript_turns.append({
+            "role": role,
+            "text": text.strip(),
+            "time": round(time.time() - started_at, 1),
+        })
+
+    # The initial provider adapter exposes an event callback at construction;
+    # keep this narrow compatibility hook so future registered adapters can
+    # offer a public setter without changing the Worker dispatch contract.
+    set_event_handler = getattr(adapter, "set_event_handler", None)
+    if callable(set_event_handler):
+        result = set_event_handler(_on_realtime_event)
+        if asyncio.iscoroutine(result):
+            await result
+    elif hasattr(adapter, "_event_handler"):
+        setattr(adapter, "_event_handler", _on_realtime_event)
+
+    bridge = LiveKitAudioBridge(ctx.room, adapter.send_audio)
+    try:
+        await ctx.connect()
+        _register_call_log_completion(ctx, call_log_id, transcript_turns, started_at)
+
+        async def _subscribe(track) -> None:
+            if _is_audio_track(track):
+                await bridge.subscribe(track)
+
+        for participant in ctx.room.remote_participants.values():
+            for publication in getattr(participant, "track_publications", {}).values():
+                track = getattr(publication, "track", None)
+                if track is not None:
+                    await _subscribe(track)
+
+        @ctx.room.on("track_subscribed")
+        def _on_track_subscribed(track, publication, participant):
+            if _is_audio_track(track):
+                asyncio.create_task(_subscribe(track))
+
+        await adapter.run(config, bridge)
+        return transcript_turns
+    finally:
+        try:
+            await adapter.close()
+        finally:
+            await bridge.close()
+
+
+@server.rtc_session()
+async def entrypoint(ctx: JobContext):
+    """Fetch secret runtime only in the Worker, then dispatch one explicit mode."""
+    ctx.log_context_fields = {"room": ctx.room.name}
+    metadata: dict[str, str] | None = None
+    started_at = time.time()
+    try:
+        metadata = _parse_worker_metadata(ctx.job.metadata)
+        runtime = await asyncio.to_thread(_fetch_runtime_secrets, metadata["agent_id"])
+        if not isinstance(runtime, dict):
+            raise RuntimeError("Worker runtime payload is invalid")
+        if runtime.get("agent_id") != metadata["agent_id"] or runtime.get("runtime_mode") != metadata["runtime_mode"]:
+            raise RuntimeError("Worker runtime does not match dispatch metadata")
+
+        if metadata["runtime_mode"] == "pipeline":
+            await run_pipeline_call(ctx, runtime, metadata["call_log_id"])
+        elif metadata["runtime_mode"] == "realtime":
+            await run_realtime_call(ctx, runtime, metadata["call_log_id"])
+        else:  # _parse_worker_metadata deliberately makes this unreachable.
+            raise RuntimeError("Worker dispatch mode is unsupported")
+    except Exception as exc:
+        if metadata is not None:
+            stage = "realtime_runtime" if metadata["runtime_mode"] == "realtime" else "worker_runtime"
+            _write_call_log_end(
+                metadata["call_log_id"],
+                status="failed",
+                duration_seconds=int(time.time() - started_at),
+                failure_stage=stage,
+                failure_reason=_safe_failure_reason(exc),
+            )
+        # Never stringify the original exception: runtime and provider errors
+        # can contain bearer credentials or a provider-bound voice identifier.
+        logger.error("Worker runtime dispatch failed")
+        try:
+            await ctx.room.disconnect()
+        except Exception:
+            pass
+        raise RuntimeError("Worker runtime dispatch failed") from None
 
 
 if __name__ == "__main__":

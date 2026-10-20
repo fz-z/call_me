@@ -11,6 +11,7 @@ class AgentLoggingTests(unittest.TestCase):
                 "agent_id": "agent-1",
                 "model_config": {"provider": "qwen", "api_key": "sk-model"},
                 "tts_config": {"provider": "qwen", "api_key": "sk-tts"},
+                "realtime_config": {"provider_voice_id": "voice-private-id"},
             }
         )
 
@@ -18,6 +19,7 @@ class AgentLoggingTests(unittest.TestCase):
 
         self.assertNotIn("sk-model", sanitized)
         self.assertNotIn("sk-tts", sanitized)
+        self.assertNotIn("voice-private-id", sanitized)
         self.assertIn('"api_key": "***"', sanitized)
 
 
