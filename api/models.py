@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class UserOut(BaseModel):
@@ -299,6 +300,26 @@ class CallLogEndRequest(BaseModel):
     status: str = "completed"
     duration_seconds: int
     transcript: Optional[str] = None
+    failure_stage: Optional[str] = None
+    failure_reason: Optional[str] = None
+
+    @field_validator("failure_stage")
+    @classmethod
+    def sanitize_failure_stage(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        sanitized = re.sub(r"[^a-z0-9_.-]+", "_", value.strip().lower())[:64]
+        return sanitized or None
+
+    @field_validator("failure_reason")
+    @classmethod
+    def sanitize_failure_reason(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        sanitized = " ".join(value.split())[:256]
+        sanitized = re.sub(r"(?i)bearer\s+[^\s]+", "Bearer [redacted]", sanitized)
+        sanitized = re.sub(r"\bsk-[A-Za-z0-9_-]+\b", "[redacted]", sanitized)
+        return sanitized or None
 
 
 class CallLogListResponse(BaseModel):

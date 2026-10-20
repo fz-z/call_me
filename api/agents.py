@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from database import _sync_conn
 from models import AgentOut, AgentCreate, AgentUpdate
 from auth import get_current_user
+from config_utils import validate_agent_runtime_selection
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -25,52 +26,37 @@ def create_agent(
     """Create an agent by selecting a voice from the pool. No audio upload."""
     db = _sync_conn()
     try:
-        if not body.voice_pool_id or not body.voice_pool_id.strip():
-            raise HTTPException(status_code=400, detail="voice_pool_id is required")
-
-        # Lookup voice from pool
-        voice = db.execute(
-            "SELECT voice_id FROM voices WHERE id = ?", (body.voice_pool_id,)
-        ).fetchone()
-        if not voice:
-            raise HTTPException(status_code=404, detail="Voice not found in pool")
-
-        # Validate optional FKs if provided
-        if body.tts_config_id:
-            tts_exists = db.execute("SELECT id FROM tts_configs WHERE id = ?", (body.tts_config_id,)).fetchone()
-            if not tts_exists:
-                raise HTTPException(status_code=400, detail="tts_config_id not found")
-        if body.model_config_id:
-            mc_exists = db.execute("SELECT id FROM model_configs WHERE id = ?", (body.model_config_id,)).fetchone()
-            if not mc_exists:
-                raise HTTPException(status_code=400, detail="model_config_id not found")
+        selection = validate_agent_runtime_selection(
+            db,
+            runtime_mode=body.runtime_mode,
+            voice_pool_id=body.voice_pool_id,
+            model_config_id=body.model_config_id,
+            tts_config_id=body.tts_config_id,
+            realtime_config_id=body.realtime_config_id,
+        )
 
         agent_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
-        # Ensure empty strings become None for FK columns
-        tts_id = body.tts_config_id or None
-        mc_id = body.model_config_id or None
         try:
             db.execute(
-                "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, voice_pool_id, source_agent_id, model_config_id, tts_config_id, photo_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (agent_id, body.alias, voice["voice_id"], body.system_prompt, user["id"], body.voice_pool_id, None, mc_id, tts_id, body.photo_url, now),
+                "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, voice_pool_id, source_agent_id, model_config_id, tts_config_id, runtime_mode, realtime_config_id, photo_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    agent_id, body.alias, selection["voice_id"], body.system_prompt,
+                    user["id"], selection["voice_pool_id"], None,
+                    selection["model_config_id"], selection["tts_config_id"],
+                    selection["runtime_mode"], selection["realtime_config_id"], body.photo_url, now,
+                ),
             )
         except Exception:
             import logging
             logging.getLogger("api").error(
                 "FK constraint failed — voice_pool_id=%s tts_config_id=%s model_config_id=%s owner_id=%s",
-                body.voice_pool_id, tts_id, mc_id, user["id"],
+                selection["voice_pool_id"], selection["tts_config_id"], selection["model_config_id"], user["id"],
             )
             raise
         db.commit()
-        return AgentOut(
-            id=agent_id, alias=body.alias, voice_id=voice["voice_id"],
-            voice_pool_id=body.voice_pool_id,
-            system_prompt=body.system_prompt, owner_id=user["id"],
-            tts_config_id=getattr(body, 'tts_config_id', None),
-            photo_url=body.photo_url,
-            created_at=now,
-        )
+        row = db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
+        return AgentOut(**dict(row))
     finally:
         db.close()
 
@@ -119,48 +105,38 @@ def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_curr
 
         new_alias = body.alias if body.alias is not None else row["alias"]
         new_prompt = body.system_prompt if body.system_prompt is not None else row["system_prompt"]
-        # model_config_id: None=no change, ""=clear, uuid=set
-        new_model_config_id = row["model_config_id"]
-        if body.model_config_id is not None:
-            new_model_config_id = body.model_config_id if body.model_config_id.strip() else None
-        # tts_config_id: None=no change, ""=clear, uuid=set
-        new_tts_config_id = row["tts_config_id"]
-        if body.tts_config_id is not None:
-            new_tts_config_id = body.tts_config_id if body.tts_config_id.strip() else None
-        new_voice_pool_id = row["voice_pool_id"] if "voice_pool_id" in row.keys() else None
-        new_voice_id = row["voice_id"]
+        new_model_config_id = row["model_config_id"] if body.model_config_id is None else body.model_config_id
+        new_tts_config_id = row["tts_config_id"] if body.tts_config_id is None else body.tts_config_id
+        new_realtime_config_id = row["realtime_config_id"] if body.realtime_config_id is None else body.realtime_config_id
+        new_runtime_mode = row["runtime_mode"] if body.runtime_mode is None else body.runtime_mode
+        new_voice_pool_id = row["voice_pool_id"]
         new_photo_url = row["photo_url"] if "photo_url" in row.keys() else None
         if body.photo_url is not None:
             new_photo_url = body.photo_url if body.photo_url.strip() else None
 
         if body.voice_pool_id is not None:
-            if body.voice_pool_id.strip():
-                voice_row = db.execute(
-                    "SELECT voice_id FROM voices WHERE id = ?", (body.voice_pool_id,)
-                ).fetchone()
-                if not voice_row:
-                    raise HTTPException(status_code=404, detail="Voice not found")
-                new_voice_pool_id = body.voice_pool_id
-                new_voice_id = voice_row["voice_id"]
-            else:
-                # empty string = clear voice_pool_id and voice_id
-                new_voice_pool_id = None
-                new_voice_id = None
+            new_voice_pool_id = body.voice_pool_id
+
+        selection = validate_agent_runtime_selection(
+            db,
+            runtime_mode=new_runtime_mode,
+            voice_pool_id=new_voice_pool_id,
+            model_config_id=new_model_config_id,
+            tts_config_id=new_tts_config_id,
+            realtime_config_id=new_realtime_config_id,
+        )
 
         db.execute(
-            "UPDATE agents SET alias=?, system_prompt=?, model_config_id=?, voice_pool_id=?, voice_id=?, tts_config_id=?, photo_url=? WHERE id=?",
-            (new_alias, new_prompt, new_model_config_id, new_voice_pool_id, new_voice_id, new_tts_config_id, new_photo_url, agent_id),
+            "UPDATE agents SET alias=?, system_prompt=?, model_config_id=?, voice_pool_id=?, voice_id=?, tts_config_id=?, runtime_mode=?, realtime_config_id=?, photo_url=? WHERE id=?",
+            (
+                new_alias, new_prompt, selection["model_config_id"], selection["voice_pool_id"],
+                selection["voice_id"], selection["tts_config_id"], selection["runtime_mode"],
+                selection["realtime_config_id"], new_photo_url, agent_id,
+            ),
         )
         db.commit()
-        return AgentOut(
-            id=agent_id, alias=new_alias, voice_id=new_voice_id,
-            voice_pool_id=new_voice_pool_id,
-            system_prompt=new_prompt, owner_id=row["owner_id"],
-            source_agent_id=row["source_agent_id"] if "source_agent_id" in row.keys() else None, model_config_id=new_model_config_id,
-            tts_config_id=new_tts_config_id,
-            photo_url=new_photo_url,
-            created_at=row["created_at"],
-        )
+        updated = db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
+        return AgentOut(**dict(updated))
     finally:
         db.close()
 

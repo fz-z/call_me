@@ -1,4 +1,5 @@
 import os
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -80,6 +81,90 @@ class TestCallLog:
             assert log["ended_at"] is not None
         finally:
             conn.close()
+
+    def test_call_log_records_runtime_and_sanitized_failure_diagnostics(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
+        owner_headers = _auth_header("runtime-log-caller", "pw")
+        agent_id = client.post(
+            "/api/agents",
+            headers=owner_headers,
+            json={"alias": "Runtime log", "voice_pool_id": voice_pool_id},
+        ).json()["id"]
+        assert client.post("/api/call/token", headers=owner_headers, json={"agent_id": agent_id}).status_code == 200
+
+        from database import _sync_conn
+        conn = _sync_conn()
+        try:
+            log = conn.execute("SELECT * FROM call_logs ORDER BY started_at DESC LIMIT 1").fetchone()
+            call_log_id = log["id"]
+            assert log["runtime_mode"] == "pipeline"
+            assert log["provider"] == "qwen"
+            assert log["model"] == "qwen-plus"
+        finally:
+            conn.close()
+
+        finished = client.patch(
+            f"/api/call/admin/call-logs/{call_log_id}/end",
+            headers=WORKER_HEADERS,
+            json={
+                "status": "failed",
+                "duration_seconds": 0,
+                "failure_stage": "provider_connect",
+                "failure_reason": "connection_failed",
+            },
+        )
+        assert finished.status_code == 204, finished.text
+
+        conn = _sync_conn()
+        try:
+            log = conn.execute("SELECT * FROM call_logs WHERE id = ?", (call_log_id,)).fetchone()
+            assert log["failure_stage"] == "provider_connect"
+            assert log["failure_reason"] == "connection_failed"
+        finally:
+            conn.close()
+
+    def test_incomplete_realtime_configuration_creates_no_call_log(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
+        from database import _sync_conn
+
+        config_id = str(uuid.uuid4())
+        db = _sync_conn()
+        try:
+            db.execute(
+                "INSERT INTO realtime_configs "
+                "(id, name, provider, model, endpoint, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (config_id, "Incomplete runtime", "qwen", "qwen-audio-3.1-realtime-plus", "", "2026-10-19T00:00:00+00:00"),
+            )
+            db.execute(
+                "INSERT INTO voice_runtime_bindings "
+                "(id, voice_pool_id, runtime_kind, runtime_config_id, provider_voice_id, created_at) "
+                "VALUES (?, ?, 'realtime', ?, ?, ?)",
+                (str(uuid.uuid4()), voice_pool_id, config_id, "private-voice", "2026-10-19T00:00:00+00:00"),
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        owner_headers = _auth_header("incomplete-realtime", "pw")
+        agent = client.post(
+            "/api/agents",
+            headers=owner_headers,
+            json={
+                "alias": "Incomplete realtime",
+                "voice_pool_id": voice_pool_id,
+                "runtime_mode": "realtime",
+                "realtime_config_id": config_id,
+            },
+        )
+        assert agent.status_code == 200, agent.text
+        response = client.post("/api/call/token", headers=owner_headers, json={"agent_id": agent.json()["id"]})
+
+        assert response.status_code == 400
+        db = _sync_conn()
+        try:
+            assert db.execute("SELECT COUNT(*) FROM call_logs").fetchone()[0] == 0
+        finally:
+            db.close()
 
 
 class TestCallLogList:

@@ -10,7 +10,7 @@ from livekit import api as lk_api
 from database import _sync_conn
 from models import TokenRequest, TokenResponse, CallLogEndRequest
 from auth import get_current_user
-from config_utils import public_agent_config_payload
+from config_utils import public_agent_config_payload, resolve_agent_runtime_config
 from worker import require_worker_secret
 
 router = APIRouter(prefix="/api/call", tags=["call"])
@@ -29,6 +29,23 @@ def _user_can_access(db, agent_id: str, user_id: str, role: str) -> bool:
     return row is not None and row["owner_id"] == user_id
 
 
+def _runtime_call_log_fields(runtime: dict) -> tuple[str, str | None, str | None]:
+    """Ensure the selected runtime is usable before a call log is created."""
+    runtime_mode = runtime["runtime_mode"]
+    if runtime_mode == "realtime":
+        realtime = runtime.get("realtime_config")
+        required = ("provider", "model", "endpoint", "api_key", "voice_id")
+        if not realtime or any(not realtime.get(field) for field in required):
+            raise HTTPException(
+                status_code=400,
+                detail="Realtime agent configuration is incomplete",
+            )
+        return runtime_mode, realtime["provider"], realtime["model"]
+
+    pipeline = runtime.get("model_config")
+    return runtime_mode, pipeline["provider"] if pipeline else None, pipeline["model"] if pipeline else None
+
+
 @router.post("/token", response_model=TokenResponse)
 def get_call_token(body: TokenRequest, user: dict = Depends(get_current_user)):
     db = _sync_conn()
@@ -40,14 +57,17 @@ def get_call_token(body: TokenRequest, user: dict = Depends(get_current_user)):
         if not _user_can_access(db, body.agent_id, user["id"], user["role"]):
             raise HTTPException(status_code=403, detail="No permission to use this agent")
 
+        runtime = resolve_agent_runtime_config(db, agent_row)
+        runtime_mode, provider, model = _runtime_call_log_fields(runtime)
+
         room_name = f"call_{uuid.uuid4().hex[:12]}"
 
         # Record call start
         call_log_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
         db.execute(
-            "INSERT INTO call_logs (id, agent_id, caller_user_id, room_name, started_at, status) VALUES (?, ?, ?, ?, ?, ?)",
-            (call_log_id, body.agent_id, user["id"], room_name, now, "running"),
+            "INSERT INTO call_logs (id, agent_id, caller_user_id, room_name, started_at, status, runtime_mode, provider, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (call_log_id, body.agent_id, user["id"], room_name, now, "running", runtime_mode, provider, model),
         )
         db.commit()
 
@@ -79,8 +99,11 @@ def end_call_log(
     try:
         ended_at = datetime.now(timezone.utc).isoformat()
         db.execute(
-            "UPDATE call_logs SET status = ?, ended_at = ?, duration_seconds = ?, transcript = ? WHERE id = ?",
-            (body.status, ended_at, body.duration_seconds, body.transcript, call_log_id),
+            "UPDATE call_logs SET status = ?, ended_at = ?, duration_seconds = ?, transcript = ?, failure_stage = ?, failure_reason = ? WHERE id = ?",
+            (
+                body.status, ended_at, body.duration_seconds, body.transcript,
+                body.failure_stage, body.failure_reason, call_log_id,
+            ),
         )
         db.commit()
     finally:

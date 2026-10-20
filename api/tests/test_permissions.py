@@ -1,3 +1,6 @@
+import json
+import uuid
+
 import pytest
 from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
@@ -19,7 +22,73 @@ def _get_voice_pool_id():
         conn.close()
 
 
+def _create_bound_realtime_config(voice_pool_id):
+    key = client.post(
+        "/api/admin/api-keys",
+        headers=_admin_header(),
+        json={
+            "name": f"Permission runtime key {uuid.uuid4()}",
+            "provider": "qwen",
+            "api_key": "permission-runtime-secret",
+        },
+    )
+    assert key.status_code == 200, key.text
+    config = client.post(
+        "/api/admin/realtime-configs",
+        headers=_admin_header(),
+        json={
+            "name": f"Permission runtime config {uuid.uuid4()}",
+            "provider": "qwen",
+            "model": "qwen-audio-3.1-realtime-plus",
+            "api_key_id": key.json()["id"],
+            "capabilities_json": json.dumps({"voice_clone": True}),
+        },
+    )
+    assert config.status_code == 200, config.text
+    from database import _sync_conn
+
+    db = _sync_conn()
+    try:
+        db.execute(
+            "INSERT INTO voice_runtime_bindings "
+            "(id, voice_pool_id, runtime_kind, runtime_config_id, provider_voice_id, created_at) "
+            "VALUES (?, ?, 'realtime', ?, ?, ?)",
+            (str(uuid.uuid4()), voice_pool_id, config.json()["id"], "private-voice", "2026-10-19T00:00:00+00:00"),
+        )
+        db.commit()
+    finally:
+        db.close()
+    return config.json()["id"]
+
+
 class TestPermissions:
+    def test_grant_preserves_realtime_runtime_selection(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
+        config_id = _create_bound_realtime_config(voice_pool_id)
+        owner_headers = _auth_header("realtime-owner", "pw")
+        source = client.post(
+            "/api/agents",
+            headers=owner_headers,
+            json={
+                "alias": "Realtime source",
+                "voice_pool_id": voice_pool_id,
+                "runtime_mode": "realtime",
+                "realtime_config_id": config_id,
+            },
+        )
+        assert source.status_code == 200, source.text
+        client.post("/api/auth/register", json={"username": "realtime-receiver", "password": "pw"})
+
+        copy = client.post(
+            f"/api/agents/{source.json()['id']}/grant",
+            headers=_admin_header(),
+            json={"username": "realtime-receiver"},
+        )
+
+        assert copy.status_code == 200, copy.text
+        assert copy.json()["runtime_mode"] == "realtime"
+        assert copy.json()["realtime_config_id"] == config_id
+
     def test_grant_and_access(self, clean_db):
         voice_pool_id = _get_voice_pool_id()
         owner_headers = _auth_header("owner", "pw")

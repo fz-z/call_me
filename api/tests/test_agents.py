@@ -1,3 +1,6 @@
+import json
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 from main import app
@@ -17,6 +20,53 @@ def _get_voice_pool_id(db=None):
         return row["id"]
     finally:
         conn.close()
+
+
+def _create_realtime_config(voice_pool_id, *, with_binding=True):
+    key = client.post(
+        "/api/admin/api-keys",
+        headers=_admin_header(),
+        json={
+            "name": f"Agent runtime key {uuid.uuid4()}",
+            "provider": "qwen",
+            "api_key": "agent-runtime-secret",
+        },
+    )
+    assert key.status_code == 200, key.text
+    config = client.post(
+        "/api/admin/realtime-configs",
+        headers=_admin_header(),
+        json={
+            "name": f"Agent runtime config {uuid.uuid4()}",
+            "provider": "qwen",
+            "model": "qwen-audio-3.1-realtime-plus",
+            "api_key_id": key.json()["id"],
+            "endpoint": "wss://realtime.example.test",
+            "capabilities_json": json.dumps({"voice_clone": True}),
+        },
+    )
+    assert config.status_code == 200, config.text
+    if with_binding:
+        from database import _sync_conn
+
+        db = _sync_conn()
+        try:
+            db.execute(
+                "INSERT INTO voice_runtime_bindings "
+                "(id, voice_pool_id, runtime_kind, runtime_config_id, provider_voice_id, created_at) "
+                "VALUES (?, ?, 'realtime', ?, ?, ?)",
+                (
+                    str(uuid.uuid4()),
+                    voice_pool_id,
+                    config.json()["id"],
+                    "private-realtime-voice",
+                    "2026-10-19T00:00:00+00:00",
+                ),
+            )
+            db.commit()
+        finally:
+            db.close()
+    return config.json()
 
 
 class TestAgentCRUD:
@@ -39,6 +89,91 @@ class TestAgentCRUD:
         assert data["voice_id"] == "Cherry"
         assert data["voice_pool_id"] == voice_pool_id
         assert data["system_prompt"] == "Be helpful"
+
+    def test_pipeline_agent_defaults_to_pipeline_runtime(self, clean_db):
+        response = client.post(
+            "/api/agents",
+            headers=_auth_header(),
+            json={"alias": "Pipeline", "voice_pool_id": _get_voice_pool_id()},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["runtime_mode"] == "pipeline"
+        assert response.json()["realtime_config_id"] is None
+
+    def test_realtime_agent_requires_a_config_and_exact_voice_binding(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
+        missing_config = client.post(
+            "/api/agents",
+            headers=_auth_header(),
+            json={
+                "alias": "Missing config",
+                "voice_pool_id": voice_pool_id,
+                "runtime_mode": "realtime",
+            },
+        )
+        config_without_binding = _create_realtime_config(voice_pool_id, with_binding=False)
+        missing_binding = client.post(
+            "/api/agents",
+            headers=_auth_header(),
+            json={
+                "alias": "Missing binding",
+                "voice_pool_id": voice_pool_id,
+                "runtime_mode": "realtime",
+                "realtime_config_id": config_without_binding["id"],
+            },
+        )
+
+        assert missing_config.status_code == 400
+        assert missing_binding.status_code == 400
+
+    def test_realtime_agent_persists_selected_runtime_without_pipeline_defaults(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
+        config = _create_realtime_config(voice_pool_id)
+
+        response = client.post(
+            "/api/agents",
+            headers=_auth_header(),
+            json={
+                "alias": "Realtime",
+                "voice_pool_id": voice_pool_id,
+                "runtime_mode": "realtime",
+                "realtime_config_id": config["id"],
+                "model_config_id": "",
+                "tts_config_id": "",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["runtime_mode"] == "realtime"
+        assert response.json()["realtime_config_id"] == config["id"]
+        assert response.json()["model_config_id"] is None
+        assert response.json()["tts_config_id"] is None
+
+    def test_updating_to_realtime_requires_a_config_and_exact_voice_binding(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
+        headers = _auth_header("mode-updater", "pw")
+        pipeline_agent = client.post(
+            "/api/agents",
+            headers=headers,
+            json={"alias": "Mode updater", "voice_pool_id": voice_pool_id},
+        )
+        assert pipeline_agent.status_code == 200, pipeline_agent.text
+        config = _create_realtime_config(voice_pool_id, with_binding=False)
+
+        no_config = client.patch(
+            f"/api/agents/{pipeline_agent.json()['id']}",
+            headers=headers,
+            json={"runtime_mode": "realtime"},
+        )
+        no_binding = client.patch(
+            f"/api/agents/{pipeline_agent.json()['id']}",
+            headers=headers,
+            json={"runtime_mode": "realtime", "realtime_config_id": config["id"]},
+        )
+
+        assert no_config.status_code == 400
+        assert no_binding.status_code == 400
 
     def test_list_after_create(self, clean_db):
         voice_pool_id = _get_voice_pool_id()
