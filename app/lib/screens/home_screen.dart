@@ -32,7 +32,8 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _agents = agents;
         _loading = false;
-        if (_selectedAgent == null && agents.isNotEmpty) _selectedAgent = agents.first;
+        if (_selectedAgent == null && agents.isNotEmpty)
+          _selectedAgent = agents.first;
       });
     } catch (e) {
       setState(() => _loading = false);
@@ -45,16 +46,28 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final result = await api.getCallToken(_selectedAgent!.id);
       if (mounted) {
-        Navigator.push(context, MaterialPageRoute(
-          builder: (_) => CallScreen(
-            agent: _selectedAgent!,
-            token: result['token']!,
-            roomUrl: result['room_url']!,
-          ),
-        ));
+        Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => CallScreen(
+                agent: _selectedAgent!,
+                token: result['token']!,
+                roomUrl: result['room_url']!,
+              ),
+            ));
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Call failed: $e')));
+    } on CallTokenException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.userMessage)),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('连接失败，请稍后重试')),
+        );
+      }
     }
   }
 
@@ -75,7 +88,8 @@ class _HomeScreenState extends State<HomeScreen> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Agents'),
-          BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.settings), label: 'Settings'),
         ],
       ),
     );
@@ -93,12 +107,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   const Icon(Icons.smart_toy, size: 80, color: Colors.blue),
                   const SizedBox(height: 16),
                   if (_agents.isEmpty)
-                    const Text('No agents available', style: TextStyle(fontSize: 16, color: Colors.grey))
+                    const Text('No agents available',
+                        style: TextStyle(fontSize: 16, color: Colors.grey))
                   else ...[
                     DropdownButton<VoiceAgent>(
                       value: _selectedAgent,
                       isExpanded: true,
-                      items: _agents.map((a) => DropdownMenuItem(value: a, child: Text(a.alias))).toList(),
+                      items: _agents
+                          .map((a) =>
+                              DropdownMenuItem(value: a, child: Text(a.alias)))
+                          .toList(),
                       onChanged: (a) => setState(() => _selectedAgent = a),
                     ),
                     const SizedBox(height: 24),
@@ -108,7 +126,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: ElevatedButton.icon(
                         onPressed: _startCall,
                         icon: const Icon(Icons.call, size: 28),
-                        label: const Text('Start Call', style: TextStyle(fontSize: 18)),
+                        label: const Text('Start Call',
+                            style: TextStyle(fontSize: 18)),
                       ),
                     ),
                   ],

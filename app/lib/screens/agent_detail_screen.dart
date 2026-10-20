@@ -28,14 +28,17 @@ class _AgentDetailScreenState extends State<AgentDetailScreen> {
     setState(() => _saving = true);
     try {
       final api = context.read<ApiService>();
-      await api.updateAgent(widget.agent.id, _alias.text.trim(), _systemPrompt.text.trim());
+      await api.updateAgent(
+          widget.agent.id, _alias.text.trim(), _systemPrompt.text.trim());
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Saved')));
         Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Save failed: $e')));
       }
     } finally {
       setState(() => _saving = false);
@@ -53,7 +56,8 @@ class _AgentDetailScreenState extends State<AgentDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Edit Agent'), actions: [
-        TextButton(onPressed: _saving ? null : _save, child: const Text('Save')),
+        TextButton(
+            onPressed: _saving ? null : _save, child: const Text('Save')),
       ]),
       body: Padding(
         padding: const EdgeInsets.all(24),
@@ -62,9 +66,12 @@ class _AgentDetailScreenState extends State<AgentDetailScreen> {
           children: [
             const Text('Alias', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            TextField(controller: _alias, decoration: const InputDecoration(hintText: 'Agent name')),
+            TextField(
+                controller: _alias,
+                decoration: const InputDecoration(hintText: 'Agent name')),
             const SizedBox(height: 24),
-            const Text('Personality / System Prompt', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text('Personality / System Prompt',
+                style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             TextField(
               controller: _systemPrompt,
@@ -75,7 +82,17 @@ class _AgentDetailScreenState extends State<AgentDetailScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            Text('Voice: ${widget.agent.voiceId}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            Text(
+              widget.agent.runtimeMode == 'realtime'
+                  ? '通话方式：实时语音'
+                  : '通话方式：标准语音管线',
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+            if (widget.agent.provider != null) ...[
+              const SizedBox(height: 4),
+              Text('服务商：${widget.agent.provider}',
+                  style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            ],
           ],
         ),
       ),

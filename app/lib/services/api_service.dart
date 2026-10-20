@@ -4,6 +4,35 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/agent.dart';
 
+class CallTokenException implements Exception {
+  final String userMessage;
+
+  const CallTokenException._(this.userMessage);
+
+  factory CallTokenException.fromResponse(int statusCode, String body) {
+    String? detail;
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        final responseDetail = decoded['detail'];
+        if (responseDetail is String) detail = responseDetail;
+      }
+    } on Object {
+      // A failed token response must never surface its raw body to callers.
+    }
+
+    if (statusCode >= 400 &&
+        statusCode < 500 &&
+        detail?.toLowerCase().contains('realtime') == true) {
+      return const CallTokenException._('该 Agent 的实时语音服务暂不可用');
+    }
+    return const CallTokenException._('连接失败，请稍后重试');
+  }
+
+  @override
+  String toString() => userMessage;
+}
+
 class ApiService {
   String? _baseUrl;
   String? _token;
@@ -20,14 +49,15 @@ class ApiService {
     final userId = prefs.getString('user_id');
     final createdAt = prefs.getString('user_created_at') ?? '';
     if (role != null && username != null && userId != null) {
-      _currentUser = User(id: userId, username: username, role: role, createdAt: createdAt);
+      _currentUser = User(
+          id: userId, username: username, role: role, createdAt: createdAt);
     }
   }
 
   Map<String, String> get _headers => {
-    'Content-Type': 'application/json',
-    if (_token != null) 'Authorization': 'Bearer $_token',
-  };
+        'Content-Type': 'application/json',
+        if (_token != null) 'Authorization': 'Bearer $_token',
+      };
 
   void setBaseUrl(String url) => _baseUrl = url;
   String? get token => _token;
@@ -84,7 +114,8 @@ class ApiService {
 
   // VoiceAgents
   Future<List<VoiceAgent>> listAgents() async {
-    final r = await http.get(Uri.parse('$_baseUrl/api/agents'), headers: _headers);
+    final r =
+        await http.get(Uri.parse('$_baseUrl/api/agents'), headers: _headers);
     if (r.statusCode == 200) {
       final list = jsonDecode(r.body) as List;
       return list.map((e) => VoiceAgent.fromJson(e)).toList();
@@ -92,7 +123,8 @@ class ApiService {
     throw Exception('Failed to list agents');
   }
 
-  Future<VoiceAgent> createAgent(String alias, String systemPrompt, String filePath) async {
+  Future<VoiceAgent> createAgent(
+      String alias, String systemPrompt, String filePath) async {
     final uri = Uri.parse('$_baseUrl/api/agents');
     final request = http.MultipartRequest('POST', uri)
       ..headers['Authorization'] = 'Bearer $_token'
@@ -108,11 +140,13 @@ class ApiService {
   }
 
   Future<void> deleteAgent(String id) async {
-    final r = await http.delete(Uri.parse('$_baseUrl/api/agents/$id'), headers: _headers);
+    final r = await http.delete(Uri.parse('$_baseUrl/api/agents/$id'),
+        headers: _headers);
     if (r.statusCode != 204) throw Exception('Failed to delete agent');
   }
 
-  Future<VoiceAgent> updateAgent(String id, String alias, String systemPrompt) async {
+  Future<VoiceAgent> updateAgent(
+      String id, String alias, String systemPrompt) async {
     final r = await http.patch(
       Uri.parse('$_baseUrl/api/agents/$id'),
       headers: _headers,
@@ -135,7 +169,7 @@ class ApiService {
       final data = jsonDecode(r.body);
       return {'token': data['token'], 'room_url': data['room_url']};
     }
-    throw Exception('Failed to get call token');
+    throw CallTokenException.fromResponse(r.statusCode, r.body);
   }
 
   // Settings

@@ -9,7 +9,11 @@ class CallScreen extends StatefulWidget {
   final String token;
   final String roomUrl;
 
-  const CallScreen({super.key, required this.agent, required this.token, required this.roomUrl});
+  const CallScreen(
+      {super.key,
+      required this.agent,
+      required this.token,
+      required this.roomUrl});
 
   @override
   State<CallScreen> createState() => _CallScreenState();
@@ -82,7 +86,9 @@ class _CallScreenState extends State<CallScreen> {
         _micError = e.toString();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('麦克风错误: $e'), duration: const Duration(seconds: 5)),
+            SnackBar(
+                content: Text('麦克风错误: $e'),
+                duration: const Duration(seconds: 5)),
           );
         }
       }
@@ -93,7 +99,9 @@ class _CallScreenState extends State<CallScreen> {
       });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connection failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('连接失败，请稍后重试')),
+        );
         Navigator.pop(context);
       }
     }
@@ -128,7 +136,8 @@ class _CallScreenState extends State<CallScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (widget.agent.photoUrl != null && widget.agent.photoUrl!.isNotEmpty)
+            if (widget.agent.photoUrl != null &&
+                widget.agent.photoUrl!.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 16),
                 child: ClipRRect(
@@ -142,20 +151,24 @@ class _CallScreenState extends State<CallScreen> {
                   ),
                 ),
               ),
-            Text(widget.agent.alias, style: const TextStyle(color: Colors.white, fontSize: 20)),
+            Text(widget.agent.alias,
+                style: const TextStyle(color: Colors.white, fontSize: 20)),
             const SizedBox(height: 16),
             if (_state == CallState.connecting) ...[
               const CircularProgressIndicator(color: Colors.white),
               const SizedBox(height: 12),
-              const Text('正在连接...', style: TextStyle(color: Colors.white70, fontSize: 14)),
+              const Text('正在连接...',
+                  style: TextStyle(color: Colors.white70, fontSize: 14)),
             ] else if (_state == CallState.ringing) ...[
               const CircularProgressIndicator(color: Colors.white),
               const SizedBox(height: 12),
-              const Text('等待对方接听...', style: TextStyle(color: Colors.white70, fontSize: 14)),
+              const Text('等待对方接听...',
+                  style: TextStyle(color: Colors.white70, fontSize: 14)),
             ] else if (_agentEndedCall) ...[
               const Icon(Icons.call_end, size: 64, color: Colors.red),
               const SizedBox(height: 12),
-              const Text('通话结束', style: TextStyle(color: Colors.white70, fontSize: 20)),
+              const Text('通话结束',
+                  style: TextStyle(color: Colors.white70, fontSize: 20)),
               const SizedBox(height: 36),
               FloatingActionButton(
                 onPressed: () => Navigator.pop(context),
@@ -163,11 +176,15 @@ class _CallScreenState extends State<CallScreen> {
                 child: const Icon(Icons.close, color: Colors.white, size: 32),
               ),
             ] else ...[
-              Icon(Icons.mic, size: 64, color: _micOk ? Colors.green : Colors.red),
+              Icon(Icons.mic,
+                  size: 64, color: _micOk ? Colors.green : Colors.red),
               const SizedBox(height: 4),
               Text(
-                _micOk ? '麦克风已连接' : (_micError.isNotEmpty ? '麦克风异常: $_micError' : '麦克风未就绪'),
-                style: TextStyle(color: _micOk ? Colors.green : Colors.red, fontSize: 11),
+                _micOk
+                    ? '麦克风已连接'
+                    : (_micError.isNotEmpty ? '麦克风异常: $_micError' : '麦克风未就绪'),
+                style: TextStyle(
+                    color: _micOk ? Colors.green : Colors.red, fontSize: 11),
               ),
               const SizedBox(height: 8),
               StreamBuilder(
@@ -181,7 +198,8 @@ class _CallScreenState extends State<CallScreen> {
               FloatingActionButton(
                 onPressed: _hangup,
                 backgroundColor: Colors.red,
-                child: const Icon(Icons.call_end, color: Colors.white, size: 32),
+                child:
+                    const Icon(Icons.call_end, color: Colors.white, size: 32),
               ),
             ],
           ],
