@@ -10,6 +10,7 @@
         <router-link to="/users">用户管理</router-link>
         <router-link to="/model-configs">LLM模型</router-link>
         <router-link to="/tts-configs">TTS 模型</router-link>
+        <router-link to="/realtime-configs">实时模型</router-link>
         <router-link to="/voices">声音库</router-link>
         <router-link to="/api-keys">API Keys</router-link>
         <router-link to="/call-logs">通话记录</router-link>
