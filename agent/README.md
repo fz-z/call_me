@@ -12,7 +12,7 @@ python agent.py start           # 生产模式
 
 ## Docker 模型缓存与内存
 
-- 镜像构建会通过 Hugging Face 镜像预载 multilingual turn detector。该模型在管线通话中以离线模式读取，不能依赖首次通话下载。构建不执行 LiveKit 的广义 `download-files` CLI：该 CLI 在当前原生依赖组合下会在下载完成后异常退出，导致镜像无法发布。
+- 镜像构建会通过 Hugging Face 镜像预载已安装 turn detector 插件注册的全部模型版本。它们在管线通话中以离线模式读取，不能依赖首次通话下载。构建不执行 LiveKit 的广义 `download-files` CLI：该 CLI 在当前原生依赖组合下会在下载完成后异常退出，导致镜像无法发布。
 - 预载模型随镜像发布；新建镜像时需要能访问配置的 Hugging Face 镜像，但容器首次通话不依赖外网下载。
 - 生产环境默认仅保留 1 个预热 Worker，以避免 LiveKit 默认 10 个 Worker 分别加载 VAD 耗尽小规格服务器内存。可在服务器本地 `.env` 设置 `AGENT_IDLE_PROCESSES=0` 进一步节省常驻内存，代价是首通话冷启动。
 
