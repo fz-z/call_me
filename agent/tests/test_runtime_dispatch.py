@@ -1,9 +1,19 @@
 import asyncio
 import json
+import logging
 import unittest
 from unittest.mock import patch
 
-from agent import _parse_worker_metadata, entrypoint, run_realtime_call
+from agent import (
+    _cancel_and_wait,
+    _idle_process_count,
+    _monitor_farewell,
+    _monitor_silence,
+    _parse_worker_metadata,
+    _register_pipeline_cleanup,
+    entrypoint,
+    run_realtime_call,
+)
 from realtime.base import RealtimeRuntimeError
 
 
@@ -17,13 +27,17 @@ class FakeRoom:
 
     def on(self, event, callback=None):
         def register(handler):
-            self.handlers[event] = handler
+            self.handlers.setdefault(event, []).append(handler)
             return handler
 
         return register(callback) if callback is not None else register
 
     async def disconnect(self):
         self.disconnect_calls += 1
+
+    def emit(self, event, *args):
+        for handler in self.handlers.get(event, []):
+            handler(*args)
 
 
 class FakeContext:
@@ -33,9 +47,13 @@ class FakeContext:
         self.proc = type("Proc", (), {"userdata": {}})()
         self.connect_calls = 0
         self.log_context_fields = {}
+        self.shutdown_callbacks = []
 
     async def connect(self):
         self.connect_calls += 1
+
+    def add_shutdown_callback(self, callback):
+        self.shutdown_callbacks.append(callback)
 
 
 def realtime_runtime():
@@ -68,6 +86,128 @@ class FakeBridge:
 
 
 class RuntimeDispatchTests(unittest.IsolatedAsyncioTestCase):
+    def test_idle_process_count_defaults_to_one_and_rejects_invalid_values(self):
+        with patch.dict("agent.os.environ", {}, clear=True):
+            self.assertEqual(_idle_process_count(), 1)
+        with patch.dict("agent.os.environ", {"AGENT_IDLE_PROCESSES": "0"}, clear=True):
+            self.assertEqual(_idle_process_count(), 0)
+        with patch.dict("agent.os.environ", {"AGENT_IDLE_PROCESSES": "-1"}, clear=True):
+            self.assertEqual(_idle_process_count(), 1)
+        with patch.dict("agent.os.environ", {"AGENT_IDLE_PROCESSES": "many"}, clear=True):
+            self.assertEqual(_idle_process_count(), 1)
+
+    async def test_pipeline_shutdown_callback_cancels_background_tasks_and_closes_session(self):
+        ctx = FakeContext("")
+        stopped = asyncio.Event()
+
+        async def wait_forever():
+            try:
+                await asyncio.Event().wait()
+            finally:
+                stopped.set()
+
+        class FakeSession:
+            def __init__(self):
+                self.close_calls = 0
+
+            async def aclose(self):
+                self.close_calls += 1
+
+        background_task = asyncio.create_task(wait_forever())
+        await asyncio.sleep(0)
+        session = FakeSession()
+        _register_pipeline_cleanup(ctx, session, [background_task])
+
+        self.assertEqual(len(ctx.shutdown_callbacks), 1)
+        await ctx.shutdown_callbacks[0]()
+        await asyncio.wait_for(stopped.wait(), timeout=0.2)
+
+        self.assertTrue(background_task.cancelled())
+        self.assertEqual(session.close_calls, 1)
+
+    async def test_pipeline_monitor_cancels_its_nested_silence_prompt_on_shutdown(self):
+        should_end = asyncio.Event()
+        owned_tasks = []
+        prompt_started = asyncio.Event()
+        prompt_cancelled = asyncio.Event()
+
+        class FakeSession:
+            def __init__(self):
+                self.handlers = {}
+
+            def on(self, event, handler):
+                self.handlers[event] = handler
+
+            def emit(self, event, payload):
+                self.handlers[event](payload)
+
+            def say(self, *args, **kwargs):
+                class Handle:
+                    async def wait_for_playout(self):
+                        prompt_started.set()
+                        try:
+                            await asyncio.Event().wait()
+                        finally:
+                            prompt_cancelled.set()
+
+                return Handle()
+
+        session = FakeSession()
+        monitor = asyncio.create_task(_monitor_silence(should_end, session, None, owned_tasks))
+        owned_tasks.append(monitor)
+        await asyncio.sleep(0)
+        session.emit("user_state_changed", type("Event", (), {"new_state": "away"})())
+        await asyncio.wait_for(prompt_started.wait(), timeout=0.2)
+
+        await _cancel_and_wait(owned_tasks)
+        await asyncio.wait_for(prompt_cancelled.wait(), timeout=0.2)
+
+        self.assertTrue(monitor.done())
+        self.assertFalse(any(not task.done() for task in owned_tasks))
+
+    async def test_pipeline_monitor_cancels_its_nested_farewell_timer_on_shutdown(self):
+        should_end = asyncio.Event()
+        owned_tasks = []
+
+        class FakeSession:
+            def __init__(self):
+                self.handlers = {}
+
+            def on(self, event, handler):
+                self.handlers[event] = handler
+
+            def emit(self, event, payload):
+                self.handlers[event](payload)
+
+        session = FakeSession()
+        monitor = asyncio.create_task(
+            _monitor_farewell(should_end, session, logging.getLogger("test"), owned_tasks)
+        )
+        owned_tasks.append(monitor)
+        await asyncio.sleep(0)
+        session.emit(
+            "user_input_transcribed",
+            type("Event", (), {"transcript": "再见", "is_final": True})(),
+        )
+        await asyncio.sleep(0)
+
+        self.assertEqual(len(owned_tasks), 2)
+        await _cancel_and_wait(owned_tasks)
+
+        self.assertTrue(monitor.done())
+        self.assertFalse(any(not task.done() for task in owned_tasks))
+
+    async def test_cancel_and_wait_consumes_a_completed_task_exception(self):
+        async def fails_after_close():
+            raise RealtimeRuntimeError("provider closed")
+
+        task = asyncio.create_task(fails_after_close())
+        await asyncio.sleep(0)
+
+        await _cancel_and_wait([task])
+
+        self.assertTrue(task.done())
+
     def test_metadata_has_only_non_secret_dispatch_fields(self):
         metadata = json.dumps(
             {"agent_id": "agent-1", "call_log_id": "call-1", "runtime_mode": "realtime"}
@@ -181,6 +321,82 @@ class RuntimeDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bridges[0].subscribed, [track])
         self.assertEqual(transcript[0]["text"], "你好")
         self.assertTrue(bridges[0].closed)
+
+    async def test_realtime_room_disconnect_stops_provider_and_releases_bridge(self):
+        ctx = FakeContext("")
+        bridges = []
+
+        class BlockingAdapter:
+            def __init__(self):
+                self.started = asyncio.Event()
+                self.cancelled = False
+                self.closed = False
+
+            async def send_audio(self, pcm):
+                pass
+
+            async def run(self, config, bridge):
+                self.started.set()
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    self.cancelled = True
+                    raise
+
+            async def close(self):
+                self.closed = True
+
+        adapter = BlockingAdapter()
+
+        def make_bridge(*args, **kwargs):
+            bridge = FakeBridge(*args, **kwargs)
+            bridges.append(bridge)
+            return bridge
+
+        with patch("agent.LiveKitAudioBridge", side_effect=make_bridge), patch(
+            "agent.create_realtime_provider", return_value=adapter
+        ), patch("agent._write_call_log_end"):
+            call = asyncio.create_task(run_realtime_call(ctx, realtime_runtime(), "call-1"))
+            await asyncio.wait_for(adapter.started.wait(), timeout=0.2)
+            ctx.room.emit("disconnected")
+            transcript = await asyncio.wait_for(call, timeout=0.2)
+
+        self.assertEqual(transcript, [])
+        self.assertTrue(adapter.closed)
+        self.assertTrue(adapter.cancelled)
+        self.assertTrue(bridges[0].closed)
+
+    async def test_realtime_disconnect_during_connect_does_not_start_provider(self):
+        class DisconnectingContext(FakeContext):
+            async def connect(self):
+                await super().connect()
+                self.room.emit("disconnected")
+
+        ctx = DisconnectingContext("")
+
+        class Adapter:
+            def __init__(self):
+                self.run_calls = 0
+                self.closed = False
+
+            async def send_audio(self, pcm):
+                pass
+
+            async def run(self, config, bridge):
+                self.run_calls += 1
+
+            async def close(self):
+                self.closed = True
+
+        adapter = Adapter()
+        with patch("agent.LiveKitAudioBridge", side_effect=FakeBridge), patch(
+            "agent.create_realtime_provider", return_value=adapter
+        ), patch("agent._write_call_log_end"):
+            transcript = await run_realtime_call(ctx, realtime_runtime(), "call-1")
+
+        self.assertEqual(transcript, [])
+        self.assertEqual(adapter.run_calls, 0)
+        self.assertTrue(adapter.closed)
 
 
 if __name__ == "__main__":

@@ -209,7 +209,12 @@ USER_FAREWELL_KEYWORDS = ["再见", "拜拜", "掰掰", "拜", "挂了", "先这
 AGENT_FAREWELL_KEYWORDS = ["再见", "拜拜", "bye", "goodbye", "下次再聊", "回头再聊"]
 
 
-async def _monitor_farewell(should_end: asyncio.Event, session: AgentSession, logger):
+async def _monitor_farewell(
+    should_end: asyncio.Event,
+    session: AgentSession,
+    logger,
+    background_tasks: list[asyncio.Task],
+):
     """Two-way farewell detection:
     1. User says goodbye (STT keyword) → wait for LLM to handle it, or force disconnect after 5s.
     2. Agent says goodbye (LLM response contains farewell) → disconnect after playout.
@@ -228,7 +233,7 @@ async def _monitor_farewell(should_end: asyncio.Event, session: AgentSession, lo
             if kw in text:
                 logger.info(f"User farewell '{kw}' detected, waiting for LLM to handle")
                 farewell_pending = True
-                fallback_timer = asyncio.create_task(_fallback())
+                fallback_timer = _track_background_task(background_tasks, asyncio.create_task(_fallback()))
                 return
 
     async def _fallback():
@@ -267,10 +272,19 @@ async def _monitor_farewell(should_end: asyncio.Event, session: AgentSession, lo
     session.on("user_input_transcribed", _on_user_input)
     session.on("conversation_item_added", _on_conversation_item)
     session.on("agent_state_changed", _on_agent_state)
-    await should_end.wait()
+    try:
+        await should_end.wait()
+    finally:
+        if fallback_timer is not None:
+            await _cancel_and_wait([fallback_timer])
 
 
-async def _monitor_silence(should_end: asyncio.Event, session: AgentSession, logger):
+async def _monitor_silence(
+    should_end: asyncio.Event,
+    session: AgentSession,
+    logger,
+    background_tasks: list[asyncio.Task],
+):
     """Monitor user silence: prompt once after away timeout, end call if still no response."""
     silence_prompted = False
     prompt_task: asyncio.Task | None = None
@@ -284,7 +298,7 @@ async def _monitor_silence(should_end: asyncio.Event, session: AgentSession, log
         if ev.new_state == "away":
             if not silence_prompted:
                 silence_prompted = True
-                prompt_task = asyncio.create_task(_prompt_and_wait())
+                prompt_task = _track_background_task(background_tasks, asyncio.create_task(_prompt_and_wait()))
         elif ev.new_state == "speaking":
             silence_prompted = False
             if prompt_task and not prompt_task.done():
@@ -308,10 +322,86 @@ async def _monitor_silence(should_end: asyncio.Event, session: AgentSession, log
             logger.warning(f"Silence prompt failed: {e}")
 
     session.on("user_state_changed", _on_user_state)
-    await should_end.wait()
+    try:
+        await should_end.wait()
+    finally:
+        if prompt_task is not None:
+            await _cancel_and_wait([prompt_task])
 
 
-server = AgentServer()
+def _idle_process_count() -> int:
+    """Return a safe, explicit idle-worker count for constrained servers.
+
+    LiveKit's production default keeps ten prewarmed child processes.  Each
+    process loads VAD during prewarm, which is expensive on this deployment.
+    Keep one ready by default; deployments that prioritize memory over cold
+    starts can set ``AGENT_IDLE_PROCESSES=0`` in their server-local .env.
+    """
+    raw = os.getenv("AGENT_IDLE_PROCESSES", "1")
+    try:
+        count = int(raw)
+    except (TypeError, ValueError):
+        logger.warning("Invalid AGENT_IDLE_PROCESSES value; using 1")
+        return 1
+    if count < 0:
+        logger.warning("Negative AGENT_IDLE_PROCESSES value; using 1")
+        return 1
+    return count
+
+
+async def _cancel_and_wait(tasks: list[asyncio.Task]) -> None:
+    """Cancel Worker-owned detached tasks and consume their termination."""
+    unique_tasks = list(dict.fromkeys(tasks))
+    for task in unique_tasks:
+        if not task.done():
+            task.cancel()
+    if unique_tasks:
+        await asyncio.gather(*unique_tasks, return_exceptions=True)
+
+
+def _track_background_task(tasks: list[asyncio.Task], task: asyncio.Task) -> asyncio.Task:
+    """Keep only active detached tasks, while consuming late task failures."""
+    tasks.append(task)
+
+    def _remove_completed_task(completed: asyncio.Task) -> None:
+        try:
+            failed = completed.exception()
+        except asyncio.CancelledError:
+            pass
+        else:
+            if failed is not None:
+                logger.warning("A pipeline background task stopped unexpectedly")
+        try:
+            tasks.remove(completed)
+        except ValueError:
+            pass
+
+    task.add_done_callback(_remove_completed_task)
+    return task
+
+
+def _register_pipeline_cleanup(
+    ctx: JobContext,
+    session: AgentSession,
+    background_tasks: list[asyncio.Task],
+) -> None:
+    """Tie detached pipeline tasks to the LiveKit job shutdown lifecycle."""
+    cleanup_lock = asyncio.Lock()
+    cleaned = False
+
+    async def _cleanup() -> None:
+        nonlocal cleaned
+        async with cleanup_lock:
+            if cleaned:
+                return
+            cleaned = True
+            await _cancel_and_wait(background_tasks)
+            await session.aclose()
+
+    ctx.add_shutdown_callback(_cleanup)
+
+
+server = AgentServer(num_idle_processes=_idle_process_count())
 
 
 def prewarm(proc: JobProcess):
@@ -484,10 +574,15 @@ async def run_pipeline_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
     logger.info(f"[timing] session.start: {t_session - t_init:.2f}s (total {t_session - t0:.2f}s)")
 
     # Start background tasks for end-call detection
-    _end_call_task = asyncio.create_task(_handle_end_call(_should_end, session, ctx.room, logger))
-    _silence_task = asyncio.create_task(_monitor_silence(_should_end, session, logger))
-    _farewell_task = asyncio.create_task(_monitor_farewell(_should_end, session, logger))
-    _bg_tasks.extend([_end_call_task, _silence_task, _farewell_task])
+    _end_call_task = _track_background_task(
+        _bg_tasks, asyncio.create_task(_handle_end_call(_should_end, session, ctx.room, logger))
+    )
+    _silence_task = _track_background_task(
+        _bg_tasks, asyncio.create_task(_monitor_silence(_should_end, session, logger, _bg_tasks))
+    )
+    _farewell_task = _track_background_task(
+        _bg_tasks, asyncio.create_task(_monitor_farewell(_should_end, session, logger, _bg_tasks))
+    )
 
     # Agent speaks first: generate greeting via LLM as background task
     # (non-blocking so entrypoint returns immediately, avoiding timeout)
@@ -522,8 +617,8 @@ async def run_pipeline_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
             logger.warning(f"Failed to generate initial greeting: {e}")
             await session.say("你好，请问有什么可以帮助你的？", allow_interruptions=False)
 
-    _greeting_task = asyncio.create_task(_speak_greeting())
-    _bg_tasks.append(_greeting_task)
+    _greeting_task = _track_background_task(_bg_tasks, asyncio.create_task(_speak_greeting()))
+    _register_pipeline_cleanup(ctx, session, _bg_tasks)
 
 
 def _is_audio_track(track) -> bool:
@@ -578,9 +673,21 @@ async def run_realtime_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
         setattr(adapter, "_event_handler", _on_realtime_event)
 
     bridge = LiveKitAudioBridge(ctx.room, adapter.send_audio)
+    subscription_tasks: set[asyncio.Task] = set()
+    adapter_task: asyncio.Task | None = None
+    disconnect_task: asyncio.Task | None = None
+    room_disconnected = asyncio.Event()
+
+    @ctx.room.on("disconnected")
+    def _on_room_disconnected():
+        room_disconnected.set()
+
     try:
-        await ctx.connect()
         _register_call_log_completion(ctx, call_log_id, transcript_turns, started_at)
+        await ctx.connect()
+        if room_disconnected.is_set():
+            logger.info("LiveKit room disconnected during connection; skipping realtime provider")
+            return transcript_turns
 
         async def _subscribe(track) -> None:
             if _is_audio_track(track):
@@ -594,13 +701,44 @@ async def run_realtime_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
 
         @ctx.room.on("track_subscribed")
         def _on_track_subscribed(track, publication, participant):
-            if _is_audio_track(track):
-                asyncio.create_task(_subscribe(track))
+            if not _is_audio_track(track) or room_disconnected.is_set():
+                return
 
-        await adapter.run(config, bridge)
+            async def _subscribe_dynamic() -> None:
+                try:
+                    await _subscribe(track)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.warning("Failed to subscribe realtime audio track")
+
+            task = asyncio.create_task(_subscribe_dynamic())
+            subscription_tasks.add(task)
+            task.add_done_callback(subscription_tasks.discard)
+
+        adapter_task = asyncio.create_task(adapter.run(config, bridge))
+        disconnect_task = asyncio.create_task(room_disconnected.wait())
+        done, _ = await asyncio.wait(
+            {adapter_task, disconnect_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if disconnect_task in done and not adapter_task.done():
+            logger.info("LiveKit room disconnected; stopping realtime provider")
+            try:
+                await adapter.close()
+            finally:
+                await _cancel_and_wait([adapter_task])
+        else:
+            await adapter_task
         return transcript_turns
     finally:
         try:
+            tasks_to_cancel = list(subscription_tasks)
+            if disconnect_task is not None:
+                tasks_to_cancel.append(disconnect_task)
+            if adapter_task is not None:
+                tasks_to_cancel.append(adapter_task)
+            await _cancel_and_wait(tasks_to_cancel)
             await adapter.close()
         finally:
             await bridge.close()

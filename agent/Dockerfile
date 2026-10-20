@@ -10,10 +10,15 @@ ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 COPY pyproject.toml .
 RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -e . || pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ "livekit-agents[openai,silero,turn-detector]~=1.3" livekit-plugins-noise-cancellation dashscope python-dotenv aiohttp certifi
 
-# Download turn detector and VAD models (via HF mirror for China)
+# Preload the multilingual turn-detector into the image. It is opened with
+# `local_files_only=True` during a pipeline call, so a clean worker cannot
+# fetch it lazily. Avoid LiveKit's broad `download-files` CLI: its native
+# download helper can abort after a successful transfer in this environment.
 ENV HF_ENDPOINT=https://hf-mirror.com
-RUN python -m livekit.agents download-files
+ENV HF_HUB_DISABLE_XET=1
+RUN python -c 'from huggingface_hub import snapshot_download; from livekit.plugins.turn_detector.models import HG_MODEL, MODEL_REVISIONS; snapshot_download(HG_MODEL, revision=MODEL_REVISIONS["multilingual"])'
 
-COPY *.py .
+COPY *.py ./
+COPY realtime ./realtime
 
 CMD ["python", "agent.py", "start"]
