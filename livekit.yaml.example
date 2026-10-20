@@ -1,0 +1,10 @@
+# 自建 LiveKit Server 配置模板
+# 复制为 livekit.yaml，把 key/secret 换成真实值
+# key/secret 必须与 .env 中的 LIVEKIT_API_KEY / LIVEKIT_API_SECRET 一致
+# 生成方式: docker run --rm livekit/livekit-server generate-keys
+port: 7880
+rtc:
+  tcp_port: 7881
+  use_external_ip: true
+keys:
+  APIxxx: xxx

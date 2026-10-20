@@ -1,0 +1,18 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY api/pyproject.toml .
+RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ .
+
+COPY api/*.py .
+COPY web-admin/dist /app/static
+
+RUN useradd --system appuser && mkdir -p /data
+
+COPY --chmod=755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
+EXPOSE 8000
+
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

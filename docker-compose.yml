@@ -1,6 +1,8 @@
 services:
   api:
-    build: ./api
+    build:
+      context: .
+      dockerfile: Dockerfile.full
     ports: ["8000:8000"]
     env_file: .env
     mem_limit: 256m
@@ -8,6 +10,7 @@ services:
       - api_data:/data
       - ./web-admin/dist:/app/static
       - ./flutter-app:/app/flutter_app
+    restart: unless-stopped
     logging:
       driver: json-file
       options:
@@ -19,12 +22,34 @@ services:
     env_file: .env
     environment:
       - API_BASE_URL=http://api:8000
+      # Worker 与同一 Compose 项目中的 LiveKit 走内网，避免依赖公网证书。
+      - LIVEKIT_URL=ws://livekit:7880
+    restart: unless-stopped
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
       # WORKER_INTERNAL_SECRET 从 .env 注入，用于拉取运行时密钥
+
+  livekit:
+    image: livekit/livekit-server:v1.8
+    ports:
+      - "127.0.0.1:7880:7880"
+      - "7881:7881"
+      - "7881:7881/udp"
+      - "50000-50100:50000-50100/udp"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml
+    command: >
+      --config /etc/livekit.yaml
+      --node-ip=${LIVEKIT_NODE_IP}
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   api_data:
