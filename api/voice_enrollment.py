@@ -18,50 +18,50 @@ class EnrollmentStrategy:
 
     async def enroll(
         self, audio_bytes: bytes, mime_type: str, api_key: str, tts_model: str,
-        voice_name: str = "", endpoint: str | None = None,
+        voice_name: str = "", endpoint: str | None = None, audio_url: str | None = None,
     ) -> str:
         raise NotImplementedError
 
 
 class QwenEnrollmentStrategy(EnrollmentStrategy):
-    """Qwen-TTS voice enrollment: base64 data URI, action=create."""
+    """Qwen voice enrollment from a temporary, publicly reachable audio URL."""
 
     async def enroll(
         self, audio_bytes: bytes, mime_type: str, api_key: str, target_model: str,
-        voice_name: str = "", endpoint: str | None = None,
+        voice_name: str = "", endpoint: str | None = None, audio_url: str | None = None,
     ) -> str:
-        b64 = base64.b64encode(audio_bytes).decode("utf-8")
-        data_uri = f"data:{mime_type};base64,{b64}"
-
         payload = {
-            "model": "qwen-voice-enrollment",
+            "model": "voice-enrollment",
             "input": {
-                "action": "create",
+                "action": "create_voice",
                 "target_model": target_model,
-                "preferred_name": "voice",
-                "audio": {"data": data_uri},
+                "prefix": "voice",
+                "url": audio_url,
             },
         }
+        if not audio_url:
+            raise ValueError("Qwen voice enrollment requires a publicly reachable audio URL")
+        # The enrollment API requires a publicly reachable URL; it does not
+        # accept a data URI for this operation.
         return await _call_dashscope_enrollment(api_key, payload, endpoint=endpoint)
 
 
 class CosyVoiceEnrollmentStrategy(EnrollmentStrategy):
     """CosyVoice voice enrollment: audio URL, action=create_voice."""
 
-    async def enroll(self, audio_bytes: bytes, mime_type: str, api_key: str, tts_model: str, voice_name: str = "", endpoint: str | None = None) -> str:
-        b64 = base64.b64encode(audio_bytes).decode("utf-8")
-        data_uri = f"data:{mime_type};base64,{b64}"
-
+    async def enroll(self, audio_bytes: bytes, mime_type: str, api_key: str, tts_model: str, voice_name: str = "", endpoint: str | None = None, audio_url: str | None = None) -> str:
+        if not audio_url:
+            raise ValueError("CosyVoice enrollment requires a publicly reachable audio URL")
         payload = {
             "model": "voice-enrollment",
             "input": {
                 "action": "create_voice",
                 "target_model": tts_model,
                 "prefix": "voice",
-                "url": data_uri,
+                "url": audio_url,
             },
         }
-        return await _call_dashscope_enrollment(api_key, payload)
+        return await _call_dashscope_enrollment(api_key, payload, endpoint=endpoint)
 
 
 class VolcengineEnrollmentStrategy(EnrollmentStrategy):
@@ -72,7 +72,7 @@ class VolcengineEnrollmentStrategy(EnrollmentStrategy):
     POLL_INTERVAL = 3  # seconds
     MAX_POLL_SECONDS = 120
 
-    async def enroll(self, audio_bytes: bytes, mime_type: str, api_key: str, tts_model: str, voice_name: str = "", endpoint: str | None = None) -> str:
+    async def enroll(self, audio_bytes: bytes, mime_type: str, api_key: str, tts_model: str, voice_name: str = "", endpoint: str | None = None, audio_url: str | None = None) -> str:
         return await self._voice_clone(audio_bytes, mime_type, api_key, voice_name)
 
     async def _voice_clone(self, audio_bytes: bytes, mime_type: str, api_key: str, voice_name: str) -> str:
@@ -195,6 +195,7 @@ async def enroll_voice(
     *,
     target_model: str | None = None,
     endpoint: str | None = None,
+    audio_url: str | None = None,
 ) -> str:
     """Upload audio to voice enrollment service, return voice_id."""
     selected_model = target_model or tts_model or os.environ.get(
@@ -202,7 +203,8 @@ async def enroll_voice(
     )
     strategy = _get_enrollment_strategy(selected_model)
     return await strategy.enroll(
-        audio_bytes, mime_type, api_key, selected_model, voice_name, endpoint
+        audio_bytes, mime_type, api_key, selected_model, voice_name, endpoint,
+        audio_url=audio_url,
     )
 
 

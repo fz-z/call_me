@@ -2,7 +2,10 @@
   <div>
     <div class="page-header">
       <h2>声音库</h2>
-      <button class="btn btn-primary" @click="showUpload = true">+ 上传音频生成经典音色</button>
+      <div class="header-actions">
+        <button class="btn-ghost" @click="openRealtimeUpload">+ 上传音频创建端到端音色</button>
+        <button class="btn btn-primary" @click="showUpload = true">+ 上传音频生成经典音色</button>
+      </div>
     </div>
     <p class="hint">声音库只展示内部音色池名称；提供商音色 ID 仅由服务端运行时使用。</p>
     <table>
@@ -26,7 +29,7 @@
             <span v-if="!voice._agents.length" class="muted">暂无</span>
           </td>
           <td>
-            <button class="btn-ghost" :disabled="!voice._ttsConfigs.length" @click="openAudition(voice)">试听</button>
+            <button class="btn-ghost" @click="openAudition(voice)">试听</button>
             <button class="btn-ghost" @click="startEdit(voice)">管理绑定</button>
             <button class="btn-ghost danger" @click="del(voice)">删除</button>
           </td>
@@ -47,6 +50,26 @@
         <p class="hint">上传 30 秒至 5 分钟的 wav、mp3 或 m4a 音频。端到端实时模型需要在创建后单独克隆绑定。</p>
         <p v-if="uploadError" class="error">{{ uploadError }}</p>
         <div class="modal-actions"><button type="button" class="btn-ghost" @click="showUpload = false">取消</button><button class="btn btn-primary" :disabled="uploading">{{ uploading ? '上传中…' : '上传' }}</button></div>
+      </form>
+    </div>
+
+    <div v-if="showRealtimeUpload" class="modal-overlay" @click.self="showRealtimeUpload = false">
+      <form class="modal" @submit.prevent="createRealtimeVoice" style="min-width:440px">
+        <h3>创建端到端实时音色</h3>
+        <input v-model="realtimeVoiceForm.name" placeholder="音色名称" required />
+        <select v-model="realtimeVoiceForm.configId" required>
+          <option value="">-- 选择实时模型 --</option>
+          <option v-for="config in cloneableRealtimeConfigs" :key="config.id" :value="config.id">{{ config.name }} ({{ config.model }})</option>
+        </select>
+        <input type="file" accept=".wav,.mp3,.m4a,audio/wav,audio/mpeg,audio/mp4" @change="(event) => realtimeVoiceForm.audioFile = event.target.files[0]" required />
+        <label class="consent"><input v-model="realtimeVoiceForm.authorizationConfirmed" type="checkbox" /> 我确认有权使用这段参考音频进行音色复刻。</label>
+        <p class="hint">支持 WAV、MP3、M4A，最大 10 MB；建议 10～20 秒、最长 60 秒，并包含至少 5 秒清晰人声。创建后只绑定所选实时模型，不会创建或绑定 TTS。</p>
+        <p v-if="!cloneableRealtimeConfigs.length" class="error">请先在“实时模型”中创建并启用支持音色复刻的配置。</p>
+        <p v-if="realtimeVoiceError" class="error">{{ realtimeVoiceError }}</p>
+        <div class="modal-actions">
+          <button type="button" class="btn-ghost" @click="showRealtimeUpload = false">取消</button>
+          <button class="btn btn-primary" :disabled="realtimeVoiceSaving || !cloneableRealtimeConfigs.length || !realtimeVoiceForm.audioFile || !realtimeVoiceForm.authorizationConfirmed">{{ realtimeVoiceSaving ? '创建中…' : '创建音色' }}</button>
+        </div>
       </form>
     </div>
 
@@ -79,7 +102,8 @@
         <h3>试听 - {{ auditionVoice?.name }}</h3>
         <select v-model="auditionTtsConfigId"><option v-for="config in auditionVoice?._ttsConfigs || []" :key="config.id" :value="config.id">{{ config.name }} ({{ config.model }})</option></select>
         <textarea v-model="auditionText" rows="4" placeholder="输入试听文本…"></textarea>
-        <p class="hint">试听只支持明确选择的经典 TTS 绑定；端到端实时模型暂不提供离线试听。</p>
+        <p v-if="!(auditionVoice?._ttsConfigs || []).length" class="hint">此音色未绑定经典 TTS 模型，无法进行经典 TTS 试听。端到端音色请通过使用它的 Agent 发起实时通话试听。</p>
+        <p v-else class="hint">试听使用所选的经典 TTS 绑定；端到端音色请通过使用它的 Agent 发起实时通话试听。</p>
         <div class="modal-actions"><button v-if="!auditionPlaying" class="btn btn-primary" :disabled="auditionLoading || !auditionText.trim() || !auditionTtsConfigId" @click="startAudition">{{ auditionLoading ? '合成中…' : '试听' }}</button><button v-else class="btn btn-primary" @click="stopAudition">停止</button><button class="btn-ghost" @click="closeAudition">关闭</button></div>
         <p v-if="auditionError" class="error">{{ auditionError }}</p>
       </div>
@@ -93,6 +117,8 @@ import api from '../api.js';
 
 const voices = ref([]); const ttsConfigs = ref([]); const realtimeConfigs = ref([]);
 const showUpload = ref(false); const voiceName = ref(''); const selectedTtsConfigId = ref(''); const uploadAudioFile = ref(null); const uploading = ref(false); const uploadError = ref('');
+const showRealtimeUpload = ref(false); const realtimeVoiceSaving = ref(false); const realtimeVoiceError = ref('');
+const realtimeVoiceForm = reactive({ name: '', configId: '', audioFile: null, authorizationConfirmed: false });
 const showEdit = ref(false); const editLoading = ref(false); const bindingLoading = ref(false); const editError = ref('');
 const editForm = reactive({ id: '', name: '', audition_text: '', ttsConfigs: [], runtimeBindings: [], addTtsId: '', realtimeConfigId: '', realtimeAudioFile: null, authorizationConfirmed: false });
 const showAudition = ref(false); const auditionVoice = ref(null); const auditionTtsConfigId = ref(''); const auditionText = ref(''); const auditionLoading = ref(false); const auditionPlaying = ref(false); const auditionError = ref('');
@@ -116,13 +142,26 @@ async function load() {
 
 async function upload() { if (!voiceName.value.trim() || !selectedTtsConfigId.value || !uploadAudioFile.value) return; uploading.value = true; uploadError.value = ''; try { const data = new FormData(); data.append('name', voiceName.value.trim()); data.append('tts_config_id', selectedTtsConfigId.value); data.append('audio_file', uploadAudioFile.value); await api.post('/admin/voices', data); showUpload.value = false; voiceName.value = ''; selectedTtsConfigId.value = ''; uploadAudioFile.value = null; await load(); } catch (error) { uploadError.value = error.response?.data?.detail || '上传失败'; } finally { uploading.value = false; } }
 
+function openRealtimeUpload() { realtimeVoiceForm.name = ''; realtimeVoiceForm.configId = cloneableRealtimeConfigs.value[0]?.id || ''; realtimeVoiceForm.audioFile = null; realtimeVoiceForm.authorizationConfirmed = false; realtimeVoiceError.value = ''; showRealtimeUpload.value = true; }
+async function createRealtimeVoice() {
+  if (!realtimeVoiceForm.name.trim() || !realtimeVoiceForm.configId || !realtimeVoiceForm.audioFile || !realtimeVoiceForm.authorizationConfirmed) return;
+  realtimeVoiceSaving.value = true; realtimeVoiceError.value = '';
+  try {
+    const data = new FormData(); data.append('name', realtimeVoiceForm.name.trim()); data.append('realtime_config_id', realtimeVoiceForm.configId); data.append('audio_file', realtimeVoiceForm.audioFile); data.append('authorization_confirmed', String(realtimeVoiceForm.authorizationConfirmed));
+    await api.post('/admin/voices/realtime', data);
+    showRealtimeUpload.value = false; await load();
+  } catch (error) {
+    realtimeVoiceError.value = error.response?.data?.detail || '端到端音色创建失败';
+  } finally { realtimeVoiceSaving.value = false; }
+}
+
 async function startEdit(voice) { editForm.id = voice.id; editForm.name = voice.name; editForm.audition_text = voice.audition_text || ''; editForm.ttsConfigs = [...voice._ttsConfigs]; editForm.runtimeBindings = [...voice._runtimeBindings]; editForm.addTtsId = ''; editForm.realtimeConfigId = ''; editForm.realtimeAudioFile = null; editForm.authorizationConfirmed = false; editError.value = ''; showEdit.value = true; }
 async function saveEdit() { if (!editForm.name.trim()) return; editLoading.value = true; editError.value = ''; try { await api.patch(`/admin/voices/${editForm.id}`, { name: editForm.name.trim(), audition_text: editForm.audition_text || '' }); showEdit.value = false; await load(); } catch (error) { editError.value = error.response?.data?.detail || '保存失败'; } finally { editLoading.value = false; } }
 async function addTtsLink() { try { await api.post(`/admin/voices/${editForm.id}/tts-configs`, { tts_config_id: editForm.addTtsId }); editForm.ttsConfigs = (await api.get(`/admin/voices/${editForm.id}/tts-configs`)).data; editForm.addTtsId = ''; } catch (error) { editError.value = error.response?.data?.detail || '添加绑定失败'; } }
 async function removeTtsLink(id) { try { await api.delete(`/admin/voices/${editForm.id}/tts-configs/${id}`); editForm.ttsConfigs = (await api.get(`/admin/voices/${editForm.id}/tts-configs`)).data; } catch (error) { editError.value = error.response?.data?.detail || '移除绑定失败'; } }
 async function createRealtimeBinding() { bindingLoading.value = true; editError.value = ''; try { const data = new FormData(); data.append('realtime_config_id', editForm.realtimeConfigId); data.append('audio_file', editForm.realtimeAudioFile); data.append('authorization_confirmed', String(editForm.authorizationConfirmed)); await api.post(`/admin/voices/${editForm.id}/realtime-bindings`, data); editForm.runtimeBindings = (await api.get(`/admin/voices/${editForm.id}/runtime-bindings`)).data; editForm.realtimeAudioFile = null; editForm.authorizationConfirmed = false; } catch (error) { editError.value = error.response?.data?.detail || '实时音色克隆失败'; } finally { bindingLoading.value = false; } }
 async function del(voice) { if (!confirm(`删除“${voice.name}”吗？`)) return; try { await api.delete(`/admin/voices/${voice.id}`); await load(); } catch (error) { alert(error.response?.data?.detail || '删除失败'); } }
-function openAudition(voice) { auditionVoice.value = voice; auditionTtsConfigId.value = voice._ttsConfigs[0]?.id || ''; auditionText.value = voice.audition_text || '你好，这是一段语音试听文本，用于测试音色效果。'; auditionError.value = ''; showAudition.value = true; }
+function openAudition(voice) { auditionVoice.value = voice; auditionTtsConfigId.value = voice._ttsConfigs[0]?.id || ''; auditionText.value = voice.audition_text || '你好，这是一段语音试听文本，用于测试音色效果。'; auditionError.value = voice._ttsConfigs.length ? '' : '此音色没有绑定经典 TTS 模型。'; showAudition.value = true; }
 function closeAudition() { stopAudition(); showAudition.value = false; auditionVoice.value = null; }
 async function startAudition() { auditionLoading.value = true; auditionError.value = ''; try { const result = await api.post(`/admin/voices/${auditionVoice.value.id}/audition`, { text: auditionText.value.trim(), tts_config_id: auditionTtsConfigId.value }); const bytes = Uint8Array.from(atob(result.data.audio_base64), (char) => char.charCodeAt(0)); auditionAudio = new Audio(URL.createObjectURL(new Blob([bytes], { type: result.data.mime_type }))); auditionAudio.onended = () => { auditionPlaying.value = false; }; auditionAudio.onerror = () => { auditionPlaying.value = false; auditionError.value = '播放失败'; }; auditionPlaying.value = true; await auditionAudio.play(); } catch (error) { auditionError.value = error.response?.data?.detail || '试听失败'; } finally { auditionLoading.value = false; } }
 function stopAudition() { if (auditionAudio) { auditionAudio.pause(); auditionAudio.currentTime = 0; auditionAudio = null; } auditionPlaying.value = false; }
@@ -130,5 +169,5 @@ onMounted(load);
 </script>
 
 <style scoped>
-.hint,.muted { color:#888; font-size:12px; }.hint { margin:0 0 12px; line-height:1.5; }.empty { color:#888; text-align:center; padding:24px; }.danger { color:#e74c3c; margin-left:4px; }.tag-classic { background:#1a3a5c; }.tag-realtime { background:#3d2d00; }.binding-row { display:flex; gap:8px; align-items:center; margin:6px 0; }.binding-row select { flex:1; }.consent { display:block; color:#bbb; font-size:12px; margin:10px 0; } h4 { margin:18px 0 8px; font-size:14px; } select,textarea,input[type=file] { width:100%; box-sizing:border-box; margin-bottom:10px; }
+.hint,.muted { color:#888; font-size:12px; }.hint { margin:0 0 12px; line-height:1.5; }.empty { color:#888; text-align:center; padding:24px; }.danger { color:#e74c3c; margin-left:4px; }.tag-classic { background:#1a3a5c; }.tag-realtime { background:#3d2d00; }.binding-row { display:flex; gap:8px; align-items:center; margin:6px 0; }.binding-row select { flex:1; }.consent { display:block; color:#bbb; font-size:12px; margin:10px 0; }.consent input { width:auto; margin:0 6px 0 0; } h4 { margin:18px 0 8px; font-size:14px; } select,textarea,input[type=file] { width:100%; box-sizing:border-box; margin-bottom:10px; }.header-actions { display:flex; gap:8px; flex-wrap:wrap; }
 </style>

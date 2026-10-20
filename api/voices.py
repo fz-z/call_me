@@ -1,6 +1,7 @@
 import uuid
 import os
 import json
+import re
 from datetime import datetime, timezone
 from urllib.parse import urlsplit, urlunsplit
 
@@ -13,6 +14,7 @@ from voice_enrollment import enroll_voice
 from tts_strategy import get_tts_strategy
 from runtime_bindings import list_voice_bindings
 from realtime_configs import SUPPORTED_MODEL, SUPPORTED_PROVIDER
+from temporary_voice_audio import publish_voice_audio, remove_published_voice_audio
 
 router = APIRouter(prefix="/api/admin/voices", tags=["voices"])
 
@@ -66,6 +68,62 @@ def _enrollment_endpoint(realtime_endpoint: str | None) -> str | None:
     return realtime_endpoint
 
 
+def _get_realtime_config(db, realtime_config_id: str):
+    config = db.execute(
+        "SELECT rc.*, COALESCE(ak.api_key, rc.api_key, '') AS resolved_api_key "
+        "FROM realtime_configs rc LEFT JOIN api_keys ak ON ak.id = rc.api_key_id "
+        "WHERE rc.id = ?",
+        (realtime_config_id,),
+    ).fetchone()
+    if not config:
+        raise HTTPException(status_code=404, detail="Realtime config not found")
+    if config["provider"] != SUPPORTED_PROVIDER or config["model"] != SUPPORTED_MODEL:
+        raise HTTPException(status_code=400, detail="Realtime config is not a supported Qwen configuration")
+    if not _voice_clone_is_supported(config["capabilities_json"]):
+        raise HTTPException(status_code=400, detail="Realtime config must declare voice_clone capability")
+    if not config["resolved_api_key"]:
+        raise HTTPException(status_code=400, detail="Realtime config has no valid API key")
+    return config
+
+
+async def _enroll_audio(api_key: str, target_model: str, endpoint: str | None, voice_name: str, audio_bytes: bytes, content_type: str) -> str:
+    token, audio_url = publish_voice_audio(audio_bytes, content_type)
+    try:
+        return await enroll_voice(
+            audio_bytes,
+            content_type,
+            api_key,
+            voice_name=voice_name,
+            target_model=target_model,
+            endpoint=endpoint,
+            audio_url=audio_url,
+        )
+    except Exception as error:
+        message = str(error)
+        if api_key:
+            message = message.replace(api_key, "[密钥已隐藏]")
+        message = re.sub(r"(?i)bearer\s+[^\s,;]+", "Bearer [密钥已隐藏]", message)
+        message = message.replace(audio_url, "[临时音频地址]")
+        message = message[:500].strip()
+        raise HTTPException(
+            status_code=502,
+            detail=f"百炼音色复刻失败：{message or '未返回错误详情'}",
+        ) from error
+    finally:
+        remove_published_voice_audio(token)
+
+
+async def _enroll_realtime_audio(config, voice_name: str, audio_bytes: bytes, content_type: str) -> str:
+    return await _enroll_audio(
+        config["resolved_api_key"],
+        config["model"],
+        _enrollment_endpoint(config["endpoint"]),
+        voice_name,
+        audio_bytes,
+        content_type,
+    )
+
+
 @router.get("", response_model=list[VoiceOut])
 def list_voices(
     tts_config_id: str | None = None,
@@ -111,9 +169,18 @@ async def create_voice(
             db.close()
 
     try:
-        dashscope_voice_id = await enroll_voice(audio_bytes, content_type, api_key, tts_model, name)
+        dashscope_voice_id = await _enroll_audio(
+            api_key,
+            tts_model or os.environ.get("SEED_TTS_VC_MODEL", "qwen3-tts-vc-realtime-2026-01-15"),
+            os.environ.get("QWEN_VOICE_ENROLLMENT_API_URL"),
+            name,
+            audio_bytes,
+            content_type,
+        )
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Voice enrollment failed: {e}")
+        raise HTTPException(status_code=502, detail=f"百炼音色复刻失败：{str(e)[:500]}") from e
 
     db = _sync_conn()
     try:
@@ -242,34 +309,13 @@ async def create_realtime_binding(
         voice = db.execute("SELECT id, name FROM voices WHERE id = ?", (voice_id,)).fetchone()
         if not voice:
             raise HTTPException(status_code=404, detail="Voice not found")
-        config = db.execute(
-            "SELECT rc.*, COALESCE(ak.api_key, rc.api_key, '') AS resolved_api_key "
-            "FROM realtime_configs rc LEFT JOIN api_keys ak ON ak.id = rc.api_key_id "
-            "WHERE rc.id = ?",
-            (realtime_config_id,),
-        ).fetchone()
-        if not config:
-            raise HTTPException(status_code=404, detail="Realtime config not found")
-        if config["provider"] != SUPPORTED_PROVIDER or config["model"] != SUPPORTED_MODEL:
-            raise HTTPException(status_code=400, detail="Realtime config is not a supported Qwen configuration")
-        if not _voice_clone_is_supported(config["capabilities_json"]):
-            raise HTTPException(status_code=400, detail="Realtime config must declare voice_clone capability")
-        if not config["resolved_api_key"]:
-            raise HTTPException(status_code=400, detail="Realtime config has no valid API key")
-
-        audio_bytes = await audio_file.read()
+        config = _get_realtime_config(db, realtime_config_id)
+        voice_name = voice["name"]
+        audio_bytes = await audio_file.read(10 * 1024 * 1024 + 1)
+        if len(audio_bytes) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Reference audio must be 10 MB or smaller")
         content_type = audio_file.content_type or "audio/wav"
-        try:
-            provider_voice_id = await enroll_voice(
-                audio_bytes,
-                content_type,
-                config["resolved_api_key"],
-                voice_name=voice["name"],
-                target_model=config["model"],
-                endpoint=_enrollment_endpoint(config["endpoint"]),
-            )
-        except Exception:
-            raise HTTPException(status_code=502, detail="Voice enrollment failed")
+        provider_voice_id = await _enroll_realtime_audio(config, voice_name, audio_bytes, content_type)
 
         now = datetime.now(timezone.utc).isoformat()
         db.execute(
@@ -287,6 +333,61 @@ async def create_realtime_binding(
             if item["runtime_kind"] == "realtime" and item["runtime_config_id"] == realtime_config_id
         )
         return VoiceRuntimeBindingOut(**binding)
+    finally:
+        db.close()
+
+
+@router.post("/realtime", response_model=VoiceOut, status_code=201)
+async def create_realtime_voice(
+    name: str = Form(...),
+    realtime_config_id: str = Form(...),
+    audio_file: UploadFile = File(...),
+    authorization_confirmed: bool = Form(...),
+    admin: dict = Depends(require_admin),
+):
+    """Create a voice-pool entry and its realtime binding without any TTS link."""
+    if not authorization_confirmed:
+        raise HTTPException(status_code=400, detail="Reference-audio authorization must be confirmed")
+    cleaned_name = name.strip()
+    if not cleaned_name:
+        raise HTTPException(status_code=400, detail="Voice name is required")
+
+    db = _sync_conn()
+    try:
+        if db.execute("SELECT id FROM voices WHERE name = ?", (cleaned_name,)).fetchone():
+            raise HTTPException(status_code=409, detail="Voice name already exists")
+        config = _get_realtime_config(db, realtime_config_id)
+    finally:
+        db.close()
+
+    suffix = os.path.splitext(audio_file.filename or "")[1].lower()
+    if suffix not in {".wav", ".mp3", ".m4a"}:
+        raise HTTPException(status_code=400, detail="Reference audio must be WAV, MP3, or M4A")
+    audio_bytes = await audio_file.read(10 * 1024 * 1024 + 1)
+    if len(audio_bytes) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Reference audio must be 10 MB or smaller")
+    content_type = audio_file.content_type or "audio/wav"
+    provider_voice_id = await _enroll_realtime_audio(config, cleaned_name, audio_bytes, content_type)
+
+    now = datetime.now(timezone.utc).isoformat()
+    voice_id = str(uuid.uuid4())
+    db = _sync_conn()
+    try:
+        db.execute(
+            "INSERT INTO voices (id, name, voice_id, type, created_at) VALUES (?, ?, '', 'cloned', ?)",
+            (voice_id, cleaned_name, now),
+        )
+        db.execute(
+            "INSERT INTO voice_runtime_bindings "
+            "(id, voice_pool_id, runtime_kind, runtime_config_id, provider_voice_id, created_at) "
+            "VALUES (?, ?, 'realtime', ?, ?, ?)",
+            (str(uuid.uuid4()), voice_id, realtime_config_id, provider_voice_id, now),
+        )
+        db.commit()
+        return VoiceOut(id=voice_id, name=cleaned_name, type="cloned", created_at=now)
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 

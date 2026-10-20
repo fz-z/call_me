@@ -19,6 +19,7 @@ from tts_configs import router as tts_configs_router
 from realtime_configs import router as realtime_configs_router
 from voices import router as voices_router
 from worker import router as worker_router
+from temporary_voice_audio import router as temporary_voice_audio_router
 
 app = FastAPI(title="call_me API")
 
@@ -42,6 +43,7 @@ app.include_router(tts_configs_router)
 app.include_router(realtime_configs_router)
 app.include_router(voices_router)
 app.include_router(worker_router)
+app.include_router(temporary_voice_audio_router)
 
 
 @app.on_event("startup")

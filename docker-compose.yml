@@ -5,6 +5,8 @@ services:
       dockerfile: Dockerfile.full
     ports: ["8000:8000"]
     env_file: .env
+    environment:
+      - VOICE_AUDIO_PUBLIC_BASE_URL=${VOICE_AUDIO_PUBLIC_BASE_URL:-http://47.116.9.70:8000}
     mem_limit: 256m
     volumes:
       - api_data:/data
