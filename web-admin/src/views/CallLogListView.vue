@@ -13,7 +13,7 @@
     </div>
     <table>
       <thead><tr>
-        <th>时间</th><th>主叫用户</th><th>Agent</th><th>时长</th><th>状态</th><th></th>
+        <th>时间</th><th>主叫用户</th><th>Agent</th><th>运行时</th><th>时长</th><th>状态</th><th></th>
       </tr></thead>
       <tbody>
         <template v-for="log in logs" :key="log.id">
@@ -21,18 +21,20 @@
             <td style="font-size:12px">{{ (log.started_at || '').substring(0, 19).replace('T', ' ') }}</td>
             <td>{{ log.caller_username }}</td>
             <td>{{ log.agent_alias }}</td>
+            <td><span class="tag" :style="log.runtime_mode === 'realtime' ? 'background:#3d2d00' : 'background:#1a3a5c'">{{ runtimeLabel(log) }}</span></td>
             <td>{{ log.duration_seconds != null ? formatDuration(log.duration_seconds) : '-' }}</td>
             <td><span :style="{color: log.status === 'completed' ? '#4caf50' : '#ff9800'}">{{ log.status === 'completed' ? '已完成' : '进行中' }}</span></td>
             <td><span style="color:#888;font-size:11px">{{ log.transcript ? '展开 ▸' : '-' }}</span></td>
           </tr>
           <tr v-if="expandedId === log.id">
-            <td colspan="6" style="background:#0f0f1a;padding:16px 20px">
+            <td colspan="7" style="background:#0f0f1a;padding:16px 20px">
+              <p v-if="log.failure_stage" style="color:#ff9800;font-size:12px;margin:0 0 12px">失败阶段：{{ log.failure_stage }}<template v-if="log.failure_reason">（{{ log.failure_reason }}）</template></p>
               <TranscriptView :transcript="log.transcript" />
             </td>
           </tr>
         </template>
         <tr v-if="!logs.length">
-          <td colspan="6" style="color:#888;text-align:center;padding:24px">暂无通话记录</td>
+          <td colspan="7" style="color:#888;text-align:center;padding:24px">暂无通话记录</td>
         </tr>
       </tbody>
     </table>
@@ -60,6 +62,11 @@ function formatDuration(s) {
   const m = Math.floor(s / 60);
   const sec = s % 60;
   return `${m}分${sec}秒`;
+}
+
+function runtimeLabel(log) {
+  const mode = log.runtime_mode === 'realtime' ? '端到端实时' : 'Pipeline';
+  return log.provider ? `${mode} · ${log.provider}` : mode;
 }
 
 function toggleExpand(log) {

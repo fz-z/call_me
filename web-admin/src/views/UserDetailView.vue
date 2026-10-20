@@ -13,7 +13,7 @@
             <span v-else style="color:#666;font-size:10px">-</span>
           </td>
           <td>{{ a.alias }}</td>
-          <td style="color:#4a90d9;font-size:12px">{{ (a.voice_id || '').substring(0, 25) }}</td>
+          <td style="color:#4a90d9;font-size:12px">{{ getVoiceName(a.voice_pool_id) }}</td>
           <td style="color:#888;max-width:300px">{{ a.system_prompt }}</td>
           <td>
             <button class="btn-ghost" @click="startEdit(a)">编辑</button>
@@ -62,6 +62,7 @@ import api from '../api.js';
 const route = useRoute();
 const username = route.params.username;
 const agents = ref([]);
+const voices = ref([]);
 const editingAgent = ref(null);
 const editAliasText = ref('');
 const editPromptText = ref('');
@@ -73,8 +74,16 @@ const editLoading = ref(false);
 const editError = ref('');
 
 async function load() {
-  const r = await api.get(`/admin/users/${username}/agents`);
-  agents.value = r.data;
+  const [agentResult, voiceResult] = await Promise.all([
+    api.get(`/admin/users/${username}/agents`),
+    api.get('/admin/voices'),
+  ]);
+  agents.value = agentResult.data;
+  voices.value = voiceResult.data;
+}
+
+function getVoiceName(id) {
+  return voices.value.find((voice) => voice.id === id)?.name || (id || '').substring(0, 8);
 }
 
 function startEdit(agent) {

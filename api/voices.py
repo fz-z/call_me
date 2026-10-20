@@ -317,16 +317,20 @@ async def audition_voice(voice_id: str, body: AuditionRequest, admin: dict = Dep
         if not voice:
             raise HTTPException(status_code=404, detail="Voice not found")
 
-        tts_row = db.execute(
+        query = (
             "SELECT tc.*, ak.api_key as resolved_key FROM tts_configs tc "
             "JOIN voice_tts_links vl ON tc.id = vl.tts_config_id "
             "LEFT JOIN api_keys ak ON tc.api_key_id = ak.id "
-            "WHERE vl.voice_id = ? "
-            "ORDER BY tc.created_at ASC LIMIT 1",
-            (voice_id,),
-        ).fetchone()
+            "WHERE vl.voice_id = ?"
+        )
+        params = [voice_id]
+        if body.tts_config_id:
+            query += " AND tc.id = ?"
+            params.append(body.tts_config_id)
+        query += " ORDER BY tc.created_at ASC LIMIT 1"
+        tts_row = db.execute(query, params).fetchone()
         if not tts_row:
-            raise HTTPException(status_code=400, detail="Voice has no linked TTS config")
+            raise HTTPException(status_code=400, detail="Voice has no matching linked TTS config")
     finally:
         db.close()
 

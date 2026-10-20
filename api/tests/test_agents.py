@@ -86,7 +86,9 @@ class TestAgentCRUD:
         assert resp.status_code == 200, resp.text
         data = resp.json()
         assert data["alias"] == "Test Agent"
-        assert data["voice_id"] == "Cherry"
+        # Provider-specific voice ids are worker-only secrets.  Clients select
+        # a pool entry by its opaque id instead.
+        assert "voice_id" not in data
         assert data["voice_pool_id"] == voice_pool_id
         assert data["system_prompt"] == "Be helpful"
 

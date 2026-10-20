@@ -6,11 +6,12 @@
     </div>
     <table>
       <thead><tr>
-        <th>别名</th><th>音色</th><th>创建者</th><th>已授权用户</th><th>操作</th>
+        <th>别名</th><th>运行模式</th><th>音色</th><th>创建者</th><th>已授权用户</th><th>操作</th>
       </tr></thead>
       <tbody>
         <tr v-for="a in agents" :key="a.id">
           <td>{{ a.alias }}</td>
+          <td><span class="tag" :style="a.runtime_mode === 'realtime' ? 'background:#3d2d00' : 'background:#1a3a5c'">{{ runtimeLabel(a) }}</span></td>
           <td style="color:#4a90d9;font-size:12px">{{ getVoiceName(a.voice_pool_id) }}</td>
           <td>{{ getUserName(a.owner_id) }}</td>
           <td>
@@ -27,7 +28,7 @@
           </td>
         </tr>
         <tr v-if="!agents.length">
-          <td colspan="5" style="color:#888;text-align:center;padding:24px">暂无 Agent</td>
+          <td colspan="6" style="color:#888;text-align:center;padding:24px">暂无 Agent</td>
         </tr>
       </tbody>
     </table>
@@ -55,10 +56,12 @@ import { ref, onMounted } from 'vue';
 import api from '../api.js';
 import AgentForm from '../components/AgentForm.vue';
 import GrantDialog from '../components/GrantDialog.vue';
+import { runtimeDisplayName } from '../utils/agentRuntimeForm.js';
 
 const agents = ref([]);
 const users = ref([]);
 const voices = ref([]);
+const realtimeConfigs = ref([]);
 const showCreate = ref(false);
 const grantTarget = ref(null);
 const editing = ref(null);
@@ -67,13 +70,15 @@ const editLoading = ref(false);
 const editError = ref('');
 
 async function load() {
-  const [r1, r2, r3] = await Promise.all([
+  const [r1, r2, r3, r4] = await Promise.all([
     api.get('/admin/root-agents'),
     api.get('/admin/users'),
     api.get('/admin/voices'),
+    api.get('/admin/realtime-configs'),
   ]);
   users.value = r2.data;
   voices.value = r3.data;
+  realtimeConfigs.value = r4.data;
   for (const a of r1.data) {
     const copies = await api.get(`/admin/agents/${a.id}/copies`);
     a.authorized_users = copies.data.map(c => users.value.find(u => u.id === c.owner_id)?.username || '?');
@@ -89,6 +94,12 @@ function getVoiceName(id) {
 
 function getUserName(uid) {
   return users.value.find(u => u.id === uid)?.username || uid?.substring(0, 8);
+}
+
+function runtimeLabel(agent) {
+  if (agent.runtime_mode !== 'realtime') return runtimeDisplayName('pipeline');
+  const config = realtimeConfigs.value.find((item) => item.id === agent.realtime_config_id);
+  return config ? `${runtimeDisplayName('realtime')} · ${config.provider}` : runtimeDisplayName('realtime');
 }
 
 async function revoke(agentId, username) {

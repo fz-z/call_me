@@ -67,7 +67,6 @@ class AgentUpdate(BaseModel):
 class AgentOut(BaseModel):
     id: str
     alias: str
-    voice_id: str
     voice_pool_id: Optional[str] = None
     system_prompt: str
     owner_id: str
@@ -260,6 +259,7 @@ class VoiceUpdate(BaseModel):
 
 class AuditionRequest(BaseModel):
     text: str
+    tts_config_id: Optional[str] = None
 
 
 class AuditionResponse(BaseModel):
