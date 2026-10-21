@@ -43,6 +43,14 @@
         <textarea v-model="editForm.system_prompt" rows="5" placeholder="人设 (system prompt)" style="width:100%;background:#111;color:#ddd;border:1px solid #333;border-radius:6px;padding:10px;font-size:14px;margin-bottom:12px"></textarea>
         <label style="display:block;color:#888;font-size:12px;margin-bottom:6px">语速：{{ Number(editForm.speech_rate || 1).toFixed(1) }}x（0.5 慢 – 2.0 快）</label>
         <input v-model.number="editForm.speech_rate" type="range" min="0.5" max="2" step="0.1" style="width:100%;margin-bottom:12px" />
+        <label style="display:block;color:#888;font-size:12px;margin-bottom:6px">头像</label>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <img v-if="editForm.photo_url" :src="editForm.photo_url" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid #4a90d9" />
+          <div v-else style="width:56px;height:56px;border-radius:50%;background:#111;border:2px dashed #333;display:flex;align-items:center;justify-content:center;color:#666;font-size:9px">无</div>
+          <label style="cursor:pointer;color:#4a90d9;font-size:12px">{{ photoUploading ? '上传中…' : '选择图片' }}<input type="file" accept="image/*" style="display:none" @change="uploadEditPhoto" :disabled="photoUploading" /></label>
+          <button v-if="editForm.photo_url" type="button" class="btn-ghost danger" @click="editForm.photo_url = ''">移除</button>
+        </div>
+        <p v-if="photoError" class="error">{{ photoError }}</p>
         <p v-if="editError" class="error">{{ editError }}</p>
         <div class="modal-actions">
           <button type="button" class="btn-ghost" @click="editing = null">取消</button>
@@ -67,9 +75,11 @@ const realtimeConfigs = ref([]);
 const showCreate = ref(false);
 const grantTarget = ref(null);
 const editing = ref(null);
-const editForm = ref({ alias: '', system_prompt: '', speech_rate: 1.0 });
+const editForm = ref({ alias: '', system_prompt: '', speech_rate: 1.0, photo_url: '' });
 const editLoading = ref(false);
 const editError = ref('');
+const photoUploading = ref(false);
+const photoError = ref('');
 
 async function load() {
   const [r1, r2, r3, r4] = await Promise.all([
@@ -120,8 +130,31 @@ function openGrant(a) { grantTarget.value = a; }
 
 function startEdit(a) {
   editing.value = a;
-  editForm.value = { alias: a.alias, system_prompt: a.system_prompt || '', speech_rate: Number(a.speech_rate || 1.0) };
+  editForm.value = { alias: a.alias, system_prompt: a.system_prompt || '', speech_rate: Number(a.speech_rate || 1.0), photo_url: a.photo_url || '' };
   editError.value = '';
+  photoError.value = '';
+}
+
+async function uploadEditPhoto(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  photoUploading.value = true;
+  photoError.value = '';
+  try {
+    const data = new FormData();
+    data.append('file', file);
+    const response = await api.post('/admin/upload', data);
+    if (response.data.ok) {
+      editForm.value.photo_url = response.data.url;
+    } else {
+      photoError.value = response.data.error || '头像上传失败';
+    }
+  } catch (error) {
+    photoError.value = error.response?.data?.detail || '头像上传失败';
+  } finally {
+    photoUploading.value = false;
+    event.target.value = '';
+  }
 }
 
 async function saveEdit() {

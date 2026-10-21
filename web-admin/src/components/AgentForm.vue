@@ -35,6 +35,14 @@
       <section v-else>
         <p class="step">Step 3/3：填写人设</p>
         <input v-model="alias" placeholder="Agent 别名" required />
+        <label>头像</label>
+        <div class="photo-row">
+          <img v-if="photoUrl" :src="photoUrl" class="photo-preview" />
+          <div v-else class="photo-placeholder">无</div>
+          <label class="photo-upload">{{ uploading ? '上传中…' : '选择图片' }}<input type="file" accept="image/*" @change="uploadPhoto" :disabled="uploading" /></label>
+          <button v-if="photoUrl" type="button" class="btn-ghost danger" @click="photoUrl = ''">移除</button>
+        </div>
+        <p v-if="uploadError" class="error">{{ uploadError }}</p>
         <textarea v-model="systemPrompt" rows="5" placeholder="人设描述（system prompt）"></textarea>
         <label>语速：{{ speechRate.toFixed(1) }}x（0.5 慢 – 2.0 快）</label>
         <input v-model.number="speechRate" type="range" min="0.5" max="2" step="0.1" />
@@ -54,7 +62,7 @@ import { buildAgentRuntimePayload, filterClassicVoices, filterRealtimeVoices, ru
 const props = defineProps({ editId: String, editAlias: String, editPrompt: String, editModelConfigId: String, editVoicePoolId: String, editTtsConfigId: String, editRealtimeConfigId: String, editRuntimeMode: String, editPhotoUrl: String, editSpeechRate: [String, Number] });
 const emit = defineEmits(['close', 'saved']);
 const step = ref(1); const runtimeMode = ref(props.editRuntimeMode || 'pipeline'); const allVoices = ref([]); const bindingsByVoice = ref({}); const ttsByVoice = ref({}); const modelConfigs = ref([]); const realtimeConfigs = ref([]);
-const selectedVoiceId = ref(props.editVoicePoolId || ''); const selectedTtsConfigId = ref(props.editTtsConfigId || ''); const selectedModelConfigId = ref(props.editModelConfigId || ''); const selectedRealtimeConfigId = ref(props.editRealtimeConfigId || ''); const alias = ref(props.editAlias || ''); const systemPrompt = ref(props.editPrompt || ''); const speechRate = ref(props.editSpeechRate == null ? 1.0 : Number(props.editSpeechRate)); const saving = ref(false); const error = ref('');
+const selectedVoiceId = ref(props.editVoicePoolId || ''); const selectedTtsConfigId = ref(props.editTtsConfigId || ''); const selectedModelConfigId = ref(props.editModelConfigId || ''); const selectedRealtimeConfigId = ref(props.editRealtimeConfigId || ''); const alias = ref(props.editAlias || ''); const systemPrompt = ref(props.editPrompt || ''); const speechRate = ref(props.editSpeechRate == null ? 1.0 : Number(props.editSpeechRate)); const photoUrl = ref(props.editPhotoUrl || ''); const uploading = ref(false); const uploadError = ref(''); const saving = ref(false); const error = ref('');
 const selectedVoice = computed(() => allVoices.value.find((voice) => voice.id === selectedVoiceId.value));
 const classicVoices = computed(() => filterClassicVoices(allVoices.value));
 const selectedVoiceTtsConfigs = computed(() => ttsByVoice.value[selectedVoiceId.value] || []);
@@ -84,10 +92,31 @@ async function load() {
     if (runtimeMode.value === 'pipeline') selectPipelineVoice();
   } catch (requestError) { error.value = requestError.response?.data?.detail || '加载 Agent 配置失败'; }
 }
-async function submit() { if (!alias.value.trim()) { error.value = '请输入 Agent 别名'; return; } saving.value = true; error.value = ''; try { const body = buildAgentRuntimePayload({ alias: alias.value.trim(), systemPrompt: systemPrompt.value, voicePoolId: selectedVoiceId.value, runtimeMode: runtimeMode.value, realtimeConfigId: selectedRealtimeConfigId.value, modelConfigId: selectedModelConfigId.value, ttsConfigId: selectedTtsConfigId.value, photoUrl: props.editPhotoUrl || '', speechRate: speechRate.value }); if (props.editId) await api.patch(`/agents/${props.editId}`, body); else await api.post('/agents', body); emit('saved'); emit('close'); } catch (requestError) { error.value = requestError.response?.data?.detail || '保存失败'; } finally { saving.value = false; } }
+async function uploadPhoto(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  uploading.value = true;
+  uploadError.value = '';
+  try {
+    const data = new FormData();
+    data.append('file', file);
+    const response = await api.post('/admin/upload', data);
+    if (response.data.ok) {
+      photoUrl.value = response.data.url;
+    } else {
+      uploadError.value = response.data.error || '头像上传失败';
+    }
+  } catch (requestError) {
+    uploadError.value = requestError.response?.data?.detail || '头像上传失败';
+  } finally {
+    uploading.value = false;
+    event.target.value = '';
+  }
+}
+async function submit() { if (!alias.value.trim()) { error.value = '请输入 Agent 别名'; return; } saving.value = true; error.value = ''; try { const body = buildAgentRuntimePayload({ alias: alias.value.trim(), systemPrompt: systemPrompt.value, voicePoolId: selectedVoiceId.value, runtimeMode: runtimeMode.value, realtimeConfigId: selectedRealtimeConfigId.value, modelConfigId: selectedModelConfigId.value, ttsConfigId: selectedTtsConfigId.value, photoUrl: photoUrl.value, speechRate: speechRate.value }); if (props.editId) await api.patch(`/agents/${props.editId}`, body); else await api.post('/agents', body); emit('saved'); emit('close'); } catch (requestError) { error.value = requestError.response?.data?.detail || '保存失败'; } finally { saving.value = false; } }
 onMounted(load);
 </script>
 
 <style scoped>
-.step,.hint { color:#888; font-size:12px; }.mode-option { display:block; padding:12px; margin:8px 0; background:#16213e; border-radius:6px; cursor:pointer; }.mode-option small { display:block; margin:4px 0 0 24px; color:#aaa; }.mode-option strong { margin-left:6px; }.summary { background:#16213e; padding:10px 12px; border-radius:5px; font-size:12px; line-height:1.8; margin:10px 0; } select,textarea,input { width:100%; box-sizing:border-box; margin:5px 0 12px; } label:not(.mode-option) { color:#aaa; font-size:12px; }
+.step,.hint { color:#888; font-size:12px; }.mode-option { display:block; padding:12px; margin:8px 0; background:#16213e; border-radius:6px; cursor:pointer; }.mode-option small { display:block; margin:4px 0 0 24px; color:#aaa; }.mode-option strong { margin-left:6px; }.summary { background:#16213e; padding:10px 12px; border-radius:5px; font-size:12px; line-height:1.8; margin:10px 0; } select,textarea,input { width:100%; box-sizing:border-box; margin:5px 0 12px; } label:not(.mode-option) { color:#aaa; font-size:12px; } .photo-row { display:flex; align-items:center; gap:12px; margin:6px 0 12px; } .photo-preview,.photo-placeholder { width:56px; height:56px; border-radius:50%; object-fit:cover; border:2px solid #4a90d9; background:#111; display:flex; align-items:center; justify-content:center; color:#666; font-size:10px; } .photo-upload { cursor:pointer; color:#4a90d9; font-size:12px; } .photo-upload input { display:none; }
 </style>
