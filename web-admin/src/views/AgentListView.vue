@@ -41,6 +41,8 @@
         <h3>编辑 Agent</h3>
         <input v-model="editForm.alias" placeholder="别名" required />
         <textarea v-model="editForm.system_prompt" rows="5" placeholder="人设 (system prompt)" style="width:100%;background:#111;color:#ddd;border:1px solid #333;border-radius:6px;padding:10px;font-size:14px;margin-bottom:12px"></textarea>
+        <label style="display:block;color:#888;font-size:12px;margin-bottom:6px">语速：{{ Number(editForm.speech_rate || 1).toFixed(1) }}x（0.5 慢 – 2.0 快）</label>
+        <input v-model.number="editForm.speech_rate" type="range" min="0.5" max="2" step="0.1" style="width:100%;margin-bottom:12px" />
         <p v-if="editError" class="error">{{ editError }}</p>
         <div class="modal-actions">
           <button type="button" class="btn-ghost" @click="editing = null">取消</button>
@@ -65,7 +67,7 @@ const realtimeConfigs = ref([]);
 const showCreate = ref(false);
 const grantTarget = ref(null);
 const editing = ref(null);
-const editForm = ref({ alias: '', system_prompt: '' });
+const editForm = ref({ alias: '', system_prompt: '', speech_rate: 1.0 });
 const editLoading = ref(false);
 const editError = ref('');
 
@@ -118,7 +120,7 @@ function openGrant(a) { grantTarget.value = a; }
 
 function startEdit(a) {
   editing.value = a;
-  editForm.value = { alias: a.alias, system_prompt: a.system_prompt || '' };
+  editForm.value = { alias: a.alias, system_prompt: a.system_prompt || '', speech_rate: Number(a.speech_rate || 1.0) };
   editError.value = '';
 }
 
