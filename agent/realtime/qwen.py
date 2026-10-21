@@ -73,6 +73,7 @@ class QwenRealtimeAdapter:
         self._close_lock = asyncio.Lock()
         self._logged_audio = False
         self._response_active = False
+        self._suppress_response_audio = False
 
     async def run(self, config: RealtimeRuntimeConfig, bridge: Any) -> None:
         if self._started:
@@ -205,7 +206,17 @@ class QwenRealtimeAdapter:
         if event_type == "response.created":
             self._response_active = True
         elif event_type == "response.done":
+            response = payload.get("response")
+            status = response.get("status") if isinstance(response, dict) else None
+            logger.info("Qwen realtime response ended cancelled=%s", status == "cancelled")
             self._response_active = False
+            self._suppress_response_audio = False
+        elif event_type == "input_audio_buffer.speech_started":
+            logger.info("Qwen realtime caller speech started response_active=%s", self._response_active)
+            if self._config.allow_interruptions and self._response_active:
+                self._suppress_response_audio = True
+                cleared = await self._bridge.clear_output()
+                logger.info("Qwen realtime interrupted output queue_cleared=%s", cleared)
         if event_type == "response.audio.delta":
             if not self._logged_audio:
                 self._logged_audio = True
@@ -219,7 +230,8 @@ class QwenRealtimeAdapter:
                 raise RealtimeRuntimeError("Invalid audio message from Qwen realtime provider") from exc
             if len(pcm) % 2:
                 raise RealtimeRuntimeError("Invalid audio message from Qwen realtime provider")
-            await self._bridge.publish_pcm(pcm)
+            if not self._suppress_response_audio:
+                await self._bridge.publish_pcm(pcm)
         if "transcript" in event_type:
             await self._emit_event(RealtimeEvent(type=event_type, data=payload))
 
@@ -233,6 +245,8 @@ class QwenRealtimeAdapter:
             if self._closed:
                 return
             self._closed = True
+            self._response_active = False
+            self._suppress_response_audio = False
             self._connection_ready.set()
             websocket, self._websocket = self._websocket, None
             session, self._session = self._session, None
