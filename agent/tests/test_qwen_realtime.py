@@ -192,6 +192,37 @@ class QwenRealtimeAdapterTests(unittest.IsolatedAsyncioTestCase):
             await adapter.close()
         self.assertEqual(adapter._pending_output_bytes, 0)
 
+    async def test_next_response_replaces_overflowed_unplayed_tail(self):
+        bridge = BlockingOutputBridge()
+        adapter = QwenRealtimeAdapter(runtime_config(allow_interruptions=False))
+        adapter._bridge = bridge
+
+        def audio_delta(pcm):
+            return json.dumps({
+                "type": "response.audio.delta",
+                "delta": base64.b64encode(pcm).decode("ascii"),
+            })
+
+        try:
+            await adapter._handle_message(json.dumps({"type": "response.created"}))
+            await adapter._handle_message(audio_delta(b"\x01\x00" * (24_000 * 60)))
+            await asyncio.wait_for(bridge.publish_started.wait(), timeout=1)
+            with self.assertLogs("realtime.qwen", level="WARNING"):
+                await adapter._handle_message(audio_delta(b"\x02\x00"))
+            await adapter._handle_message(json.dumps({"type": "response.done"}))
+
+            await adapter._handle_message(json.dumps({"type": "response.created"}))
+            await adapter._handle_message(audio_delta(b"\x03\x00"))
+
+            self.assertEqual(bridge.clear_calls, 1)
+            self.assertFalse(adapter._suppress_response_audio)
+            self.assertEqual(adapter._pending_output_bytes, len(b"\x03\x00"))
+            bridge.release_publish.set()
+            await asyncio.wait_for(adapter._output_queue.join(), timeout=5)
+            self.assertEqual(bridge.published, [b"\x03\x00"])
+        finally:
+            await adapter.close()
+
     async def test_large_audio_delta_is_published_as_short_frames(self):
         bridge = FakeBridge()
         adapter = QwenRealtimeAdapter(runtime_config())

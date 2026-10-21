@@ -6,7 +6,7 @@
 
 ## 方案
 
-保持 WebSocket 接收与 LiveKit 播放分离、20 毫秒帧和 `speech_started` 立即取消/清空的打断路径。把正常音频的待播上限改为 60 秒 PCM16（约 2.88 MB/通话），允许模型短时超实时生成。若仍超过上限，不再使整个通话退出：记录固定的 `audio_backlog_overflow` 分类，丢弃当前回复后续音频直至 `response.done`，下轮回复恢复输出；不记录文字、音频、音色 ID 或密钥。保留 `response.done` 后已排队尾音，除非用户开口触发清空。
+保持 WebSocket 接收与 LiveKit 播放分离、20 毫秒帧和 `speech_started` 立即取消/清空的打断路径。把正常音频的待播上限改为 60 秒 PCM16（约 2.88 MB/通话），允许模型短时超实时生成。若仍超过上限，不再使整个通话退出：记录固定的 `audio_backlog_overflow` 分类，丢弃当前回复后续音频直至 `response.done`，下轮回复恢复输出；不记录文字、音频、音色 ID 或密钥。通常保留 `response.done` 后已排队尾音，除非用户开口触发清空；仅当上一轮已经溢出且新一轮回复开始时，清掉尚未播放的旧尾音以给新回复让出缓冲。无论 Agent 是否允许打断，极端溢出都不能连带截断下一轮。
 
 为其他实时失败增加固定枚举诊断：`audio_publish_failure`、`provider_error`、`connection_closed` 等，仅供日志和通话失败原因使用。不得输出原始供应商异常。对回退后的线上先运行完整测试、独立复核，再仅重建 Agent 容器。保留当前回退镜像为回滚点。
 

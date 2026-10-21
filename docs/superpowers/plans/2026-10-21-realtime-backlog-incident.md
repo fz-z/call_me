@@ -56,6 +56,8 @@ await adapter._handle_message(audio_delta(b"\x03\x00"))
 - [ ] Run that focused test and observe the existing overflow exception.
 - [ ] In `_handle_message()`, on overflow set `_suppress_response_audio=True`, log only `audio_backlog_overflow`, and return; on `response.done`, keep the existing reset. Leave queued audio intact until normal playout or `speech_started`.
 
+If the next `response.created` arrives before an overflowed response's queued tail drains, call `_stop_output()` and `bridge.clear_output()` before admitting new audio. Do not clear ordinary non-overflowed response tails. Test this ordering with `allow_interruptions=False` and no intervening `speech_started`.
+
 ```python
 if self._pending_output_bytes + len(pcm) > MAX_PENDING_OUTPUT_BYTES:
     self._suppress_response_audio = True

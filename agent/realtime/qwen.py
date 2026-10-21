@@ -76,6 +76,7 @@ class QwenRealtimeAdapter:
         self._logged_audio = False
         self._response_active = False
         self._suppress_response_audio = False
+        self._overflowed_response = False
         self._output_queue: asyncio.Queue[bytes] = asyncio.Queue()
         self._pending_output_bytes = 0
         self._output_task: asyncio.Task[None] | None = None
@@ -253,6 +254,11 @@ class QwenRealtimeAdapter:
         if event_type == "error":
             raise RealtimeRuntimeError("Qwen realtime provider reported an error", code="provider_error")
         if event_type == "response.created":
+            if self._overflowed_response:
+                await self._stop_output()
+                await self._bridge.clear_output()
+                self._overflowed_response = False
+                self._suppress_response_audio = False
             self._response_active = True
         elif event_type == "response.done":
             response = payload.get("response")
@@ -272,6 +278,7 @@ class QwenRealtimeAdapter:
                 self._suppress_response_audio = self._response_active
                 await self._stop_output()
                 cleared = await self._bridge.clear_output()
+                self._overflowed_response = False
                 logger.info("Qwen realtime interrupted output queue_cleared=%s", cleared)
         if event_type == "response.audio.delta":
             if not self._logged_audio:
@@ -291,6 +298,7 @@ class QwenRealtimeAdapter:
                     self._queue_output(pcm)
                 except RealtimeRuntimeError:
                     self._suppress_response_audio = True
+                    self._overflowed_response = True
                     logger.warning("Qwen realtime event=audio_backlog_overflow")
         if "transcript" in event_type:
             await self._emit_event(RealtimeEvent(type=event_type, data=payload))
@@ -307,6 +315,7 @@ class QwenRealtimeAdapter:
             self._closed = True
             self._response_active = False
             self._suppress_response_audio = False
+            self._overflowed_response = False
             await self._stop_output()
             self._connection_ready.set()
             websocket, self._websocket = self._websocket, None
