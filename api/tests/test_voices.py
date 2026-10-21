@@ -95,6 +95,70 @@ class TestVoiceAuditionText:
         assert data["name"] == old_name + "-改"
 
 
+class TestVoiceCreationApiKey:
+    def test_create_voice_uses_tts_config_linked_key(self, clean_db, monkeypatch):
+        key = client.post(
+            "/api/admin/api-keys",
+            headers=_admin_header(),
+            json={
+                "name": "Linked Qwen key",
+                "provider": "qwen",
+                "api_key": "linked-secret",
+            },
+        )
+        assert key.status_code == 200, key.text
+
+        config = client.post(
+            "/api/admin/tts-configs",
+            headers=_admin_header(),
+            json={
+                "name": "Qwen Audio candidate",
+                "provider": "qwen",
+                "model": "qwen-audio-3.1-tts-flash",
+                "api_key_id": key.json()["id"],
+                "supports_voice_clone": True,
+            },
+        )
+        assert config.status_code == 200, config.text
+
+        captured = {}
+
+        async def fake_enroll(
+            audio_bytes, mime_type, api_key, tts_model=None, voice_name="",
+            *, target_model=None, endpoint=None, audio_url=None,
+        ):
+            captured.update(
+                api_key=api_key,
+                target_model=target_model,
+                endpoint=endpoint,
+                voice_name=voice_name,
+                audio_url=audio_url,
+            )
+            return "provider-candidate-voice"
+
+        monkeypatch.setattr("voices.enroll_voice", fake_enroll)
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "stale-env-key")
+        monkeypatch.setenv("DASHSCOPE_WORKSPACE", "llm-test")
+        monkeypatch.delenv("QWEN_VOICE_ENROLLMENT_API_URL", raising=False)
+
+        response = client.post(
+            "/api/admin/voices",
+            headers=_admin_header(),
+            data={"name": "候选测试音色", "tts_config_id": config.json()["id"]},
+            files={"audio_file": ("reference.wav", b"audio", "audio/wav")},
+        )
+
+        assert response.status_code == 200, response.text
+        assert captured["api_key"] == "linked-secret"
+        assert captured["target_model"] == "qwen-audio-3.1-tts-flash"
+        assert captured["voice_name"] == "候选测试音色"
+        assert captured["endpoint"] == (
+            "https://llm-test.cn-beijing.maas.aliyuncs.com/"
+            "api/v1/services/audio/tts/customization"
+        )
+        assert captured["audio_url"].startswith("http")
+
+
 class TestVoiceAudition:
     def test_audition_missing_text(self, clean_db):
         voice, tts_id, _ = _get_first_voice_and_tts()

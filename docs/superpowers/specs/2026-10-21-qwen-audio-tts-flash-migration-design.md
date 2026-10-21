@@ -31,7 +31,7 @@ Missing workspace configuration will produce a clear configuration error instead
 
 ### Voice recreation and migration
 
-Use the original recording for each voice to create new voices with `target_model=qwen-audio-3.1-tts-flash`. A newly returned voice ID must begin with the new model family and must pass a short synthesis check before it replaces any database binding. The local machine currently has one candidate recording, `/Users/zhangfuzhen/Desktop/Audio 2026-01-30 16.56.54.m4a`; it will not be assigned to LS or NN until its identity is confirmed. A voice without a confirmed source recording remains unchanged.
+Use the original recording for each voice to create new voices with `target_model=qwen-audio-3.1-tts-flash`. Enrollment resolves the credential from the selected TTS configuration's linked API key, falling back to the bootstrap `DASHSCOPE_API_KEY` only when the configuration has no key; a stale bootstrap key must not block re-cloning. A newly returned voice ID must begin with the new model family and must pass a short synthesis check before it replaces any database binding. The local machine currently has one candidate recording, `/Users/zhangfuzhen/Desktop/Audio 2026-01-30 16.56.54.m4a`; it will not be assigned to LS or NN until its identity is confirmed. A voice without a confirmed source recording remains unchanged.
 
 For each voice:
 

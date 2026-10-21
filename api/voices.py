@@ -39,6 +39,19 @@ def _voice_clone_is_supported(capabilities_json: str) -> bool:
     return isinstance(capabilities, dict) and capabilities.get("voice_clone") is True
 
 
+def _voice_enrollment_endpoint() -> str | None:
+    override = os.environ.get("QWEN_VOICE_ENROLLMENT_API_URL", "").strip()
+    if override:
+        return override
+    workspace = os.environ.get("DASHSCOPE_WORKSPACE", "").strip()
+    if workspace:
+        return (
+            f"https://{workspace}.cn-beijing.maas.aliyuncs.com/"
+            "api/v1/services/audio/tts/customization"
+        )
+    return None
+
+
 def _enrollment_endpoint(realtime_endpoint: str | None) -> str | None:
     """Map a Model Studio realtime WebSocket URL to its enrollment HTTP API.
 
@@ -151,28 +164,38 @@ async def create_voice(
     admin: dict = Depends(require_admin),
 ):
     api_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
-    if not api_key:
-        raise HTTPException(status_code=500, detail="DASHSCOPE_API_KEY not configured")
-
     audio_bytes = await audio_file.read()
     content_type = audio_file.content_type or "audio/wav"
 
-    # Look up TTS model for enrollment parameters
+    # The TTS configuration owns the provider key. Prefer its linked API key so
+    # uploads keep working when the bootstrap .env key is stale or absent.
     tts_model = None
     if tts_config_id:
         db = _sync_conn()
         try:
-            tc = db.execute("SELECT model FROM tts_configs WHERE id = ?", (tts_config_id,)).fetchone()
+            tc = db.execute(
+                "SELECT tc.model, tc.api_key, COALESCE(ak.api_key, '') AS resolved_key "
+                "FROM tts_configs tc LEFT JOIN api_keys ak ON tc.api_key_id = ak.id "
+                "WHERE tc.id = ?",
+                (tts_config_id,),
+            ).fetchone()
             if tc:
                 tts_model = tc["model"]
+                api_key = tc["resolved_key"] or tc["api_key"] or api_key
         finally:
             db.close()
+
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="No DashScope API key configured for voice enrollment",
+        )
 
     try:
         dashscope_voice_id = await _enroll_audio(
             api_key,
             tts_model or os.environ.get("SEED_TTS_VC_MODEL", "qwen3-tts-vc-realtime-2026-01-15"),
-            os.environ.get("QWEN_VOICE_ENROLLMENT_API_URL"),
+            _voice_enrollment_endpoint(),
             name,
             audio_bytes,
             content_type,
