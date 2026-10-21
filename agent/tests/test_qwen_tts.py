@@ -167,6 +167,34 @@ class QwenTTSHttpTests(unittest.IsolatedAsyncioTestCase):
             await _call_qwen_tts(tts=self.tts, text="你好")
         self.assertNotIn("secret-key", str(raised.exception))
 
+    async def test_download_reads_all_chunks(self):
+        class Content:
+            async def iter_chunked(self, _size):
+                yield b"RIFF"
+                yield b"agent"
+                yield b"-audio"
+
+        class Response:
+            status = 200
+            headers = {"Content-Type": "audio/wav"}
+            content_length = None
+            content = Content()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+        class Session:
+            def get(self, _url, timeout=None):
+                return Response()
+
+        self.assertEqual(
+            await _download_audio(session=Session(), url="https://audio.test/file"),
+            b"RIFFagent-audio",
+        )
+
     async def test_download_rejects_non_audio_content(self):
         session = aiohttp.ClientSession()
         self.addAsyncCleanup(session.close)

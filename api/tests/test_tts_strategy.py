@@ -9,14 +9,26 @@ import pytest
 from tts_strategy import QwenRealtimeStrategy, get_tts_strategy
 
 
+class FakeContent:
+    def __init__(self, chunks):
+        self.chunks = chunks
+
+    async def iter_chunked(self, _size):
+        for chunk in self.chunks:
+            yield chunk
+
+
 class FakeResponse:
-    def __init__(self, body, content_type, status=200, content_length=None):
+    def __init__(
+        self, body, content_type, status=200, content_length=None, chunks=None
+    ):
         self._body = body
         self.status = status
         self.headers = {"Content-Type": content_type}
         self.content_length = (
             len(body) if content_length is None else content_length
         )
+        self.content = FakeContent(chunks) if chunks is not None else None
 
     async def read(self):
         return self._body
@@ -37,6 +49,7 @@ def install_fake_session(
     download_type="audio/wav",
     download_status=200,
     download_length=None,
+    download_chunks=None,
 ):
     seen = {}
 
@@ -67,6 +80,7 @@ def install_fake_session(
                 download_type,
                 download_status,
                 download_length,
+                download_chunks,
             )
 
     monkeypatch.setattr("tts_strategy.aiohttp.ClientSession", FakeSession)
@@ -145,6 +159,26 @@ async def test_qwen_audio_synthesizes_from_provider_audio_url(monkeypatch):
             "sample_rate": 24000,
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_qwen_audio_reads_all_download_chunks(monkeypatch):
+    install_fake_session(
+        monkeypatch,
+        post_payload={"output": {"audio": {"url": "https://audio.test/file"}}},
+        download_type="audio/wav",
+        download_chunks=[b"RIFF", b"full", b"-audio"],
+    )
+    monkeypatch.setenv("QWEN_AUDIO_TTS_API_URL", "https://workspace.test/synthesize")
+
+    encoded, mime = await get_tts_strategy("qwen-audio-3.1-tts-flash").synthesize(
+        {"model": "qwen-audio-3.1-tts-flash", "resolved_key": "secret", "api_key": ""},
+        "voice",
+        "你好",
+    )
+
+    assert base64.b64decode(encoded) == b"RIFFfull-audio"
+    assert mime == "audio/wav"
 
 
 @pytest.mark.asyncio

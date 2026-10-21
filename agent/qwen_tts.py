@@ -592,7 +592,14 @@ async def _download_audio(*, session: aiohttp.ClientSession, url: str) -> bytes:
         content_length = getattr(r, "content_length", None)
         if content_length is not None and content_length > QWEN_AUDIO_TTS_MAX_BYTES:
             raise RuntimeError("下载 Qwen-TTS 音频失败：audio download too large")
-        data = await r.content.read(QWEN_AUDIO_TTS_MAX_BYTES + 1)
+        chunks: list[bytes] = []
+        total = 0
+        async for chunk in r.content.iter_chunked(64 * 1024):
+            total += len(chunk)
+            if total > QWEN_AUDIO_TTS_MAX_BYTES:
+                raise RuntimeError("下载 Qwen-TTS 音频失败：audio download too large")
+            chunks.append(chunk)
+        data = b"".join(chunks)
         if len(data) > QWEN_AUDIO_TTS_MAX_BYTES:
             raise RuntimeError("下载 Qwen-TTS 音频失败：audio download too large")
         if not data:

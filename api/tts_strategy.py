@@ -378,7 +378,14 @@ async def _read_bounded_audio(response, max_bytes: int) -> tuple[bytes, str]:
 
     content = getattr(response, "content", None)
     if content is not None:
-        raw = await content.read(max_bytes + 1)
+        chunks: list[bytes] = []
+        total = 0
+        async for chunk in content.iter_chunked(64 * 1024):
+            total += len(chunk)
+            if total > max_bytes:
+                raise RuntimeError("Qwen Audio TTS audio download is too large")
+            chunks.append(chunk)
+        raw = b"".join(chunks)
     else:
         raw = await response.read()
     if len(raw) > max_bytes:
