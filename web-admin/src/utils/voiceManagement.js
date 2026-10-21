@@ -22,3 +22,21 @@ export function getRealtimeAudioFileError(file) {
   }
   return '';
 }
+
+export function createAudioSelectionGuard() {
+  let current = 0;
+  return {
+    next() { current += 1; return current; },
+    invalidate() { current += 1; },
+    isCurrent(value) { return value === current; },
+  };
+}
+
+export async function submitAndRefreshRealtimeBinding(submit, refresh) {
+  await submit();
+  try {
+    return { bindings: await refresh(), refreshError: null };
+  } catch (refreshError) {
+    return { bindings: null, refreshError };
+  }
+}

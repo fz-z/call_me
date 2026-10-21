@@ -52,6 +52,8 @@ def validate_agent_runtime_selection(
     realtime_config_id = _optional_config_id(realtime_config_id)
 
     if mode == "pipeline":
+        if not voice["voice_id"]:
+            raise HTTPException(status_code=400, detail="Classic TTS voice is not available for this voice")
         if model_config_id and not db.execute(
             "SELECT id FROM model_configs WHERE id = ?", (model_config_id,)
         ).fetchone():

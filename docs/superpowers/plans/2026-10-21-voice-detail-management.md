@@ -18,6 +18,7 @@
 - Modify `web-admin/src/views/VoicePoolView.vue`: overview only, correctly classified realtime column, route to detail. Keep existing two creation dialogs.
 - Modify `web-admin/src/router.js`: `/voices/:id` route.
 - Modify `api/models.py` and `api/tests/test_voices.py`: expose persisted `audition_text` to the detail page without exposing provider voice IDs.
+- Modify `api/voices.py`, `api/config_utils.py`, `api/tests/test_agents.py`, `web-admin/src/components/AgentForm.vue`, and its utility/test: keep realtime-only voice profiles out of classic TTS and Pipeline flows.
 
 ### Task 1: Classify binding data at the UI boundary
 
@@ -102,6 +103,7 @@ import VoiceDetailView from './views/VoiceDetailView.vue';
 **Files:** All changed files from Tasks 1–3, `api/models.py`, `api/tests/test_voices.py`.
 
 - [ ] **Step 0: Lock the default audition text contract.** Extend `TestVoiceAuditionText.test_update_audition_text` to assert the PATCH response and subsequent GET `/api/admin/voices` response contain the saved text; verify red with `PHOTOS_DIR=/private/tmp/call_me_voice_detail_photos python -m pytest tests/test_voices.py::TestVoiceAuditionText::test_update_audition_text -q`. Add `audition_text: Optional[str] = None` to `VoiceOut`, then verify green with the same command.
+- [ ] **Step 0b: Cover review findings.** Add tests that a stale audio-selection generation is invalidated, successful POST plus failed GET is not a failed submission, and realtime-only voices cannot be linked to TTS or selected for Pipeline. Add `has_classic_voice` to `VoiceOut` while keeping `voice_id` private, guard the two invalid API writes, filter the Agent form, and display scoped guidance in the detail page. Verify targeted red/green tests before continuing.
 
 - [ ] **Step 1: Run `node --test web-admin/test/*.test.js` and `npm run build` freshly.** Read full output; do not claim success based on previous runs.
 - [ ] **Step 2: Run `git diff --check`, inspect the diff against the spec, and ensure no provider voice IDs or keys are rendered or logged.**

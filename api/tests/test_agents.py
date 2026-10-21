@@ -103,6 +103,28 @@ class TestAgentCRUD:
         assert response.json()["runtime_mode"] == "pipeline"
         assert response.json()["realtime_config_id"] is None
 
+    def test_pipeline_rejects_realtime_only_voice(self, clean_db):
+        from database import _sync_conn
+
+        voice_id = str(uuid.uuid4())
+        conn = _sync_conn()
+        try:
+            conn.execute(
+                "INSERT INTO voices (id, name, voice_id, type, created_at) VALUES (?, ?, '', 'cloned', ?)",
+                (voice_id, "仅实时音色", "2026-10-21T00:00:00+00:00"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        response = client.post(
+            "/api/agents",
+            headers=_auth_header(),
+            json={"alias": "Invalid pipeline", "voice_pool_id": voice_id},
+        )
+        assert response.status_code == 400
+        assert "classic" in response.json()["detail"].lower()
+
     def test_realtime_agent_requires_a_config_and_exact_voice_binding(self, clean_db):
         voice_pool_id = _get_voice_pool_id()
         missing_config = client.post(

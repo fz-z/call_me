@@ -14,7 +14,7 @@
         <p class="step">Step 2/3：{{ runtimeMode === 'realtime' ? '选择实时模型与音色' : '选择经典模型与音色' }}</p>
         <template v-if="runtimeMode === 'pipeline'">
           <label>音色</label>
-          <select v-model="selectedVoiceId" @change="selectPipelineVoice"><option value="">-- 选择音色 --</option><option v-for="voice in allVoices" :key="voice.id" :value="voice.id">{{ voice.name }}（{{ voice.type === 'builtin' ? '内置' : '克隆' }}）</option></select>
+          <select v-model="selectedVoiceId" @change="selectPipelineVoice"><option value="">-- 选择音色 --</option><option v-for="voice in classicVoices" :key="voice.id" :value="voice.id">{{ voice.name }}（{{ voice.type === 'builtin' ? '内置' : '克隆' }}）</option></select>
           <label>TTS 模型</label>
           <select v-model="selectedTtsConfigId" :disabled="!selectedVoiceId"><option value="">系统默认</option><option v-for="config in selectedVoiceTtsConfigs" :key="config.id" :value="config.id">{{ config.name }} ({{ config.model }})</option></select>
           <label>LLM 模型</label>
@@ -47,19 +47,20 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import api from '../api.js';
-import { buildAgentRuntimePayload, filterRealtimeVoices, runtimeDisplayName } from '../utils/agentRuntimeForm.js';
+import { buildAgentRuntimePayload, filterClassicVoices, filterRealtimeVoices, runtimeDisplayName } from '../utils/agentRuntimeForm.js';
 
 const props = defineProps({ editId: String, editAlias: String, editPrompt: String, editModelConfigId: String, editVoicePoolId: String, editTtsConfigId: String, editRealtimeConfigId: String, editRuntimeMode: String, editPhotoUrl: String });
 const emit = defineEmits(['close', 'saved']);
 const step = ref(1); const runtimeMode = ref(props.editRuntimeMode || 'pipeline'); const allVoices = ref([]); const bindingsByVoice = ref({}); const ttsByVoice = ref({}); const modelConfigs = ref([]); const realtimeConfigs = ref([]);
 const selectedVoiceId = ref(props.editVoicePoolId || ''); const selectedTtsConfigId = ref(props.editTtsConfigId || ''); const selectedModelConfigId = ref(props.editModelConfigId || ''); const selectedRealtimeConfigId = ref(props.editRealtimeConfigId || ''); const alias = ref(props.editAlias || ''); const systemPrompt = ref(props.editPrompt || ''); const saving = ref(false); const error = ref('');
 const selectedVoice = computed(() => allVoices.value.find((voice) => voice.id === selectedVoiceId.value));
+const classicVoices = computed(() => filterClassicVoices(allVoices.value));
 const selectedVoiceTtsConfigs = computed(() => ttsByVoice.value[selectedVoiceId.value] || []);
 const realtimeVoices = computed(() => filterRealtimeVoices(allVoices.value, bindingsByVoice.value, selectedRealtimeConfigId.value));
 const selectedTtsName = computed(() => selectedTtsConfigId.value ? (selectedVoiceTtsConfigs.value.find((config) => config.id === selectedTtsConfigId.value)?.name || '未知') : '系统默认');
 const selectedModelName = computed(() => selectedModelConfigId.value ? (modelConfigs.value.find((config) => config.id === selectedModelConfigId.value)?.name || '未知') : '系统默认');
 const selectedRealtimeName = computed(() => realtimeConfigs.value.find((config) => config.id === selectedRealtimeConfigId.value)?.name || '未选择');
-const canContinueRuntime = computed(() => runtimeMode.value === 'realtime' ? Boolean(selectedRealtimeConfigId.value && selectedVoiceId.value) : Boolean(selectedVoiceId.value));
+const canContinueRuntime = computed(() => runtimeMode.value === 'realtime' ? Boolean(selectedRealtimeConfigId.value && selectedVoiceId.value) : classicVoices.value.some((voice) => voice.id === selectedVoiceId.value));
 
 function nextFromMode() {
   if (props.editId && runtimeMode.value !== (props.editRuntimeMode || 'pipeline') && !confirm('切换运行模式会清空不兼容的模型字段，是否继续？')) return;

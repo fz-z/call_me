@@ -30,11 +30,13 @@
               <p class="eyebrow">端到端</p>
               <h3 id="realtime-title">实时模型音色</h3>
             </div>
-            <button v-if="unusedRealtimeConfigs.length && !cloneForm.open" class="btn btn-primary" @click="openNewClone">+ 复刻到其他模型</button>
+            <button v-if="unusedRealtimeConfigs.length && !cloneForm.open && !realtimeRefreshFailed" class="btn btn-primary" @click="openNewClone">+ 复刻到其他模型</button>
           </div>
           <p class="section-help">每个实时模型配置单独复刻一次。已复刻的音色可在该配置的多个 Agent 和后续通话中重复使用，无需再次上传。</p>
+          <p class="section-help">想听端到端效果，请在 <router-link to="/agents">Agent 管理</router-link> 选择使用此音色的实时 Agent 发起通话。</p>
 
-          <div v-if="realtimeRows.length" class="binding-list">
+          <div v-if="realtimeRefreshFailed" class="empty-state">复刻请求已成功，但绑定列表暂时无法刷新。请先刷新列表确认结果，不要重复上传。</div>
+          <div v-else-if="realtimeRows.length" class="binding-list">
             <div v-for="binding in realtimeRows" :key="binding.id" class="binding-card">
               <div>
                 <strong>{{ binding.runtime_config_name }}</strong>
@@ -46,12 +48,12 @@
           </div>
           <div v-else class="empty-state">尚未绑定实时模型。选择一个支持音色复刻的实时配置并上传参考音频即可创建。</div>
 
-          <p v-if="!unusedRealtimeConfigs.length && !cloneForm.open" class="section-help">
+          <p v-if="!unusedRealtimeConfigs.length && !cloneForm.open && !realtimeRefreshFailed" class="section-help">
             {{ realtimeConfigs.length ? '当前没有其他可新增的实时模型配置。' : '尚无实时模型配置。' }}
             <router-link to="/realtime-configs">管理实时模型 →</router-link>
           </p>
           <p v-if="realtimeNotice" class="success-note">{{ realtimeNotice }}</p>
-          <p v-if="realtimeError && !cloneForm.open" class="error">{{ realtimeError }}</p>
+          <p v-if="realtimeError && !cloneForm.open" class="error">{{ realtimeError }} <button v-if="realtimeRefreshFailed" class="btn-ghost" @click="refreshRealtimeBindings">仅刷新列表</button></p>
 
           <form v-if="cloneForm.open" class="action-panel" @submit.prevent="submitClone">
             <h4>{{ cloneForm.mode === 'replace' ? '重新复刻此模型音色' : '复刻到其他实时模型' }}</h4>
@@ -79,9 +81,10 @@
               <p class="eyebrow">经典 Pipeline</p>
               <h3 id="tts-title">TTS 模型绑定</h3>
             </div>
-            <button class="btn-ghost" :disabled="!ttsLinks.length" @click="openAudition">试听</button>
+            <button class="btn-ghost" :disabled="voice.has_classic_voice === false || !ttsLinks.length" @click="openAudition">试听</button>
           </div>
           <p class="section-help">这里管理经典 TTS 关联，与端到端实时音色分别生效。</p>
+          <p v-if="voice.has_classic_voice === false" class="warning classic-warning">此档案只有端到端音色。仅添加 TTS 模型不会生成经典音色，因此不能试听或用于经典 Agent。请返回声音库上传音频创建经典音色。</p>
           <div v-if="ttsLinks.length" class="binding-list">
             <div v-for="config in ttsLinks" :key="config.id" class="binding-card">
               <div><strong>{{ config.name }}</strong><div class="muted">{{ config.model }}</div></div>
@@ -146,7 +149,7 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../api.js';
 import { getRealtimeAudioDurationError } from '../utils/audioDuration.js';
-import { availableRealtimeConfigs, getRealtimeAudioFileError, realtimeBindings } from '../utils/voiceManagement.js';
+import { availableRealtimeConfigs, createAudioSelectionGuard, getRealtimeAudioFileError, realtimeBindings, submitAndRefreshRealtimeBinding } from '../utils/voiceManagement.js';
 
 const route = useRoute();
 const loading = ref(true); const notFound = ref(false); const pageError = ref('');
@@ -154,12 +157,13 @@ const voice = ref(null); const agents = ref([]); const ttsLinks = ref([]); const
 const ttsConfigs = ref([]); const realtimeConfigs = ref([]);
 const realtimeRows = computed(() => realtimeBindings(runtimeRows.value));
 const unusedRealtimeConfigs = computed(() => availableRealtimeConfigs(realtimeConfigs.value, runtimeRows.value));
-const availableTtsConfigs = computed(() => ttsConfigs.value.filter((config) => !ttsLinks.value.some((linked) => linked.id === config.id)));
+const availableTtsConfigs = computed(() => voice.value?.has_classic_voice !== false ? ttsConfigs.value.filter((config) => !ttsLinks.value.some((linked) => linked.id === config.id)) : []);
 const voiceAgents = computed(() => agents.value.filter((agent) => agent.voice_pool_id === voice.value?.id && !agent.source_agent_id));
 
 const cloneForm = reactive({ open: false, mode: 'new', configId: '', audioFile: null, authorized: false });
 const cloneSaving = ref(false); const audioValidating = ref(false); const cloneInputKey = ref(0);
-const realtimeError = ref(''); const realtimeNotice = ref('');
+const audioSelectionGuard = createAudioSelectionGuard();
+const realtimeError = ref(''); const realtimeNotice = ref(''); const realtimeRefreshFailed = ref(false);
 const cloneTargetName = computed(() => realtimeConfigs.value.find((config) => config.id === cloneForm.configId)?.name || realtimeRows.value.find((row) => row.runtime_config_id === cloneForm.configId)?.runtime_config_name || '未知模型');
 
 const addTtsId = ref(''); const ttsBusy = ref(false); const ttsError = ref('');
@@ -181,6 +185,7 @@ async function load() {
       api.get('/admin/agents'), api.get('/admin/tts-configs'), api.get('/admin/realtime-configs'),
     ]);
     voice.value = selected; ttsLinks.value = tts.data; runtimeRows.value = runtime.data;
+    realtimeRefreshFailed.value = false; realtimeError.value = '';
     agents.value = agentResult.data; ttsConfigs.value = ttsConfigResult.data; realtimeConfigs.value = realtimeConfigResult.data;
   } catch (error) {
     voice.value = null;
@@ -189,16 +194,19 @@ async function load() {
 }
 
 function openNewClone() {
+  audioSelectionGuard.invalidate(); audioValidating.value = false;
   cloneForm.mode = 'new'; cloneForm.configId = ''; cloneForm.audioFile = null; cloneForm.authorized = false;
   realtimeError.value = ''; realtimeNotice.value = ''; cloneInputKey.value += 1; cloneForm.open = true;
 }
 function openReplaceClone(binding) {
+  audioSelectionGuard.invalidate(); audioValidating.value = false;
   cloneForm.mode = 'replace'; cloneForm.configId = binding.runtime_config_id; cloneForm.audioFile = null; cloneForm.authorized = false;
   realtimeError.value = ''; realtimeNotice.value = ''; cloneInputKey.value += 1; cloneForm.open = true;
 }
-function closeClone() { cloneForm.open = false; cloneForm.audioFile = null; cloneForm.authorized = false; realtimeError.value = ''; }
+function closeClone() { audioSelectionGuard.invalidate(); audioValidating.value = false; cloneForm.open = false; cloneForm.audioFile = null; cloneForm.authorized = false; realtimeError.value = ''; }
 
 async function onCloneAudioSelected(event) {
+  const selectionId = audioSelectionGuard.next();
   const file = event.target.files?.[0] || null;
   cloneForm.audioFile = null; realtimeError.value = '';
   if (!file) return;
@@ -212,14 +220,18 @@ async function onCloneAudioSelected(event) {
       audio.onerror = () => reject(new Error('无法读取音频时长'));
       audio.src = audioUrl;
     });
+    if (!audioSelectionGuard.isCurrent(selectionId)) return;
     const durationError = getRealtimeAudioDurationError(duration);
     if (durationError) { realtimeError.value = durationError; event.target.value = ''; return; }
     cloneForm.audioFile = file;
   } catch (_) {
-    realtimeError.value = getRealtimeAudioDurationError(Number.NaN);
-    event.target.value = '';
+    if (audioSelectionGuard.isCurrent(selectionId)) {
+      realtimeError.value = getRealtimeAudioDurationError(Number.NaN);
+      event.target.value = '';
+    }
   } finally {
-    audio.removeAttribute('src'); audio.load(); URL.revokeObjectURL(audioUrl); audioValidating.value = false;
+    audio.removeAttribute('src'); audio.load(); URL.revokeObjectURL(audioUrl);
+    if (audioSelectionGuard.isCurrent(selectionId)) audioValidating.value = false;
   }
 }
 
@@ -236,16 +248,33 @@ async function submitClone() {
   try {
     const data = new FormData(); data.append('realtime_config_id', cloneForm.configId);
     data.append('audio_file', cloneForm.audioFile); data.append('authorization_confirmed', 'true');
-    await api.post(`/admin/voices/${voice.value.id}/realtime-bindings`, data);
-    runtimeRows.value = (await api.get(`/admin/voices/${voice.value.id}/runtime-bindings`)).data;
+    const result = await submitAndRefreshRealtimeBinding(
+      () => api.post(`/admin/voices/${voice.value.id}/realtime-bindings`, data),
+      async () => (await api.get(`/admin/voices/${voice.value.id}/runtime-bindings`)).data,
+    );
     realtimeNotice.value = cloneForm.mode === 'replace' ? '已更新该实时模型音色。' : '实时模型音色已复刻，可直接用于 Agent。';
     closeClone();
+    if (result.refreshError) {
+      realtimeRefreshFailed.value = true;
+      realtimeError.value = '绑定列表刷新失败。';
+    } else {
+      runtimeRows.value = result.bindings;
+      realtimeRefreshFailed.value = false;
+    }
   } catch (error) { realtimeError.value = error.response?.data?.detail || '音色复刻失败，请重试。'; }
   finally { cloneSaving.value = false; }
 }
 
+async function refreshRealtimeBindings() {
+  try {
+    runtimeRows.value = (await api.get(`/admin/voices/${voice.value.id}/runtime-bindings`)).data;
+    realtimeRefreshFailed.value = false; realtimeError.value = '';
+  } catch (error) { realtimeError.value = error.response?.data?.detail || '绑定列表仍无法刷新，请稍后再试。'; }
+}
+
 async function addTtsLink() {
   if (!addTtsId.value || ttsBusy.value) return;
+  if (voice.value.has_classic_voice === false) { ttsError.value = '此档案还没有经典 TTS 音色，不能只添加模型关联。'; return; }
   ttsBusy.value = true; ttsError.value = '';
   try {
     await api.post(`/admin/voices/${voice.value.id}/tts-configs`, { tts_config_id: addTtsId.value });
@@ -276,6 +305,7 @@ async function saveInfo() {
 }
 
 function openAudition() {
+  if (voice.value.has_classic_voice === false || !ttsLinks.value.length) return;
   auditionConfigId.value = ttsLinks.value[0]?.id || '';
   auditionText.value = voice.value.audition_text || '你好，这是一段语音试听文本，用于测试音色效果。';
   auditionError.value = ''; auditionOpen.value = true;
@@ -306,7 +336,7 @@ onBeforeUnmount(stopAudition);
 </script>
 
 <style scoped>
-.voice-detail { max-width: 1160px; margin: 0 auto; }.muted,.section-help,.field-hint { color:#94a3b8; font-size:13px; line-height:1.6; }.detail-header { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; margin:5px 0 24px; }.detail-header h2 { font-size:26px; margin:4px 0 6px; }.detail-header .tag { vertical-align:middle; font-weight:400; }.eyebrow { color:#73abef; font-size:11px; letter-spacing:.08em; margin-bottom:4px; }.action-link { text-decoration:none; white-space:nowrap; }.section-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start; }.detail-card,.state-card { background:#1a1a2e; border:1px solid #30354d; border-radius:10px; padding:20px; }.state-card { margin-top:18px; }.state-card h2 { margin-bottom:8px; }.section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }.section-heading h3 { font-size:18px; }.section-help { margin:0 0 16px; }.section-help a { color:#8bbcff; }.binding-list { display:grid; gap:10px; margin:15px 0; }.binding-card { border:1px solid #374151; border-radius:8px; padding:13px; display:flex; justify-content:space-between; align-items:center; gap:12px; background:#111827; }.binding-card strong { font-size:14px; }.binding-card .muted { margin-top:4px; word-break:break-word; }.reuse-note { color:#86efac; font-size:12px; margin-top:7px; }.subtle-action { white-space:nowrap; }.empty-state { color:#94a3b8; border:1px dashed #475569; border-radius:8px; padding:20px; font-size:13px; line-height:1.6; margin:15px 0; }.action-panel { background:#111827; border:1px solid #374151; border-radius:8px; padding:16px; margin-top:16px; }.action-panel h4 { margin-bottom:12px; }.action-panel label:not(.consent),.audition-modal label { display:block; color:#cbd5e1; font-size:13px; margin:12px 0 6px; }.action-panel select,.action-panel input:not([type=checkbox]),.action-panel textarea,.audition-modal select,.audition-modal textarea { display:block; width:100%; box-sizing:border-box; padding:9px; background:#0f0f1a; color:#e0e0e0; border:1px solid #475569; border-radius:5px; }.field-hint { margin:6px 0 10px; font-size:12px; }.consent { display:block; color:#cbd5e1; font-size:13px; line-height:1.5; margin:14px 0; }.consent input { margin-right:6px; }.warning { color:#fbbf24; font-size:12px; line-height:1.6; }.form-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:15px; }.add-row { display:flex; gap:8px; margin-top:16px; }.add-row select { flex:1; min-width:0; padding:8px; background:#0f0f1a; color:#e0e0e0; border:1px solid #475569; border-radius:5px; }.danger { color:#f87171; }.success-note { color:#86efac; font-size:13px; margin-top:12px; }.info-card { margin-top:18px; }.info-summary { display:grid; gap:12px; }.info-summary > div { display:grid; gap:4px; }.info-summary strong { font-size:14px; font-weight:500; white-space:pre-wrap; }.audition-modal { min-width:0; width:min(480px, calc(100vw - 32px)); }.audition-modal .field-hint { margin:10px 0; }
+.voice-detail { max-width: 1160px; margin: 0 auto; }.muted,.section-help,.field-hint { color:#94a3b8; font-size:13px; line-height:1.6; }.detail-header { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; margin:5px 0 24px; }.detail-header h2 { font-size:26px; margin:4px 0 6px; }.detail-header .tag { vertical-align:middle; font-weight:400; }.eyebrow { color:#73abef; font-size:11px; letter-spacing:.08em; margin-bottom:4px; }.action-link { text-decoration:none; white-space:nowrap; }.section-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start; }.detail-card,.state-card { background:#1a1a2e; border:1px solid #30354d; border-radius:10px; padding:20px; }.state-card { margin-top:18px; }.state-card h2 { margin-bottom:8px; }.section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }.section-heading h3 { font-size:18px; }.section-help { margin:0 0 16px; }.section-help a { color:#8bbcff; }.binding-list { display:grid; gap:10px; margin:15px 0; }.binding-card { border:1px solid #374151; border-radius:8px; padding:13px; display:flex; justify-content:space-between; align-items:center; gap:12px; background:#111827; }.binding-card strong { font-size:14px; }.binding-card .muted { margin-top:4px; word-break:break-word; }.reuse-note { color:#86efac; font-size:12px; margin-top:7px; }.subtle-action { white-space:nowrap; }.empty-state { color:#94a3b8; border:1px dashed #475569; border-radius:8px; padding:20px; font-size:13px; line-height:1.6; margin:15px 0; }.action-panel { background:#111827; border:1px solid #374151; border-radius:8px; padding:16px; margin-top:16px; }.action-panel h4 { margin-bottom:12px; }.action-panel label:not(.consent),.audition-modal label { display:block; color:#cbd5e1; font-size:13px; margin:12px 0 6px; }.action-panel select,.action-panel input:not([type=checkbox]),.action-panel textarea,.audition-modal select,.audition-modal textarea { display:block; width:100%; box-sizing:border-box; padding:9px; background:#0f0f1a; color:#e0e0e0; border:1px solid #475569; border-radius:5px; }.field-hint { margin:6px 0 10px; font-size:12px; }.consent { display:block; color:#cbd5e1; font-size:13px; line-height:1.5; margin:14px 0; }.consent input { margin-right:6px; }.warning { color:#fbbf24; font-size:12px; line-height:1.6; }.classic-warning { margin:0 0 12px; }.form-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:15px; }.add-row { display:flex; gap:8px; margin-top:16px; }.add-row select { flex:1; min-width:0; padding:8px; background:#0f0f1a; color:#e0e0e0; border:1px solid #475569; border-radius:5px; }.danger { color:#f87171; }.success-note { color:#86efac; font-size:13px; margin-top:12px; }.info-card { margin-top:18px; }.info-summary { display:grid; gap:12px; }.info-summary > div { display:grid; gap:4px; }.info-summary strong { font-size:14px; font-weight:500; white-space:pre-wrap; }.audition-modal { min-width:0; width:min(480px, calc(100vw - 32px)); }.audition-modal .field-hint { margin:10px 0; }
 @media (max-width: 900px) { .section-grid { grid-template-columns:1fr; } .detail-header { flex-wrap:wrap; } }
 @media (max-width: 560px) { .detail-card { padding:15px; } .section-heading { align-items:flex-start; flex-wrap:wrap; } .binding-card { align-items:flex-start; flex-direction:column; } }
 </style>

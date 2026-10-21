@@ -151,7 +151,7 @@ def list_voices(
             ).fetchall()
         else:
             rows = db.execute("SELECT * FROM voices ORDER BY type, name").fetchall()
-        return [VoiceOut(**dict(r)) for r in rows]
+        return [VoiceOut(**dict(r), has_classic_voice=bool(r["voice_id"])) for r in rows]
     finally:
         db.close()
 
@@ -225,7 +225,7 @@ async def create_voice(
                     (voice_id, tts_config_id),
                 )
         db.commit()
-        return VoiceOut(id=voice_id, name=name, voice_id=dashscope_voice_id, type="cloned", created_at=now)
+        return VoiceOut(id=voice_id, name=name, type="cloned", has_classic_voice=True, created_at=now)
     finally:
         db.close()
 
@@ -255,7 +255,7 @@ def create_voice_manual(body: VoiceManualCreate, admin: dict = Depends(require_a
                     (voice_id, body.tts_config_id),
                 )
         db.commit()
-        return VoiceOut(id=voice_id, name=body.name, voice_id=body.voice_id, type=body.type, created_at=now)
+        return VoiceOut(id=voice_id, name=body.name, type=body.type, has_classic_voice=bool(body.voice_id), created_at=now)
     finally:
         db.close()
 
@@ -279,7 +279,7 @@ def update_voice(voice_id: str, body: VoiceUpdate, admin: dict = Depends(require
 
         db.commit()
         updated = db.execute("SELECT * FROM voices WHERE id = ?", (voice_id,)).fetchone()
-        return VoiceOut(**dict(updated))
+        return VoiceOut(**dict(updated), has_classic_voice=bool(updated["voice_id"]))
     finally:
         db.close()
 
@@ -407,7 +407,7 @@ async def create_realtime_voice(
             (str(uuid.uuid4()), voice_id, realtime_config_id, provider_voice_id, now),
         )
         db.commit()
-        return VoiceOut(id=voice_id, name=cleaned_name, type="cloned", created_at=now)
+        return VoiceOut(id=voice_id, name=cleaned_name, type="cloned", has_classic_voice=False, created_at=now)
     except Exception:
         db.rollback()
         raise
@@ -432,9 +432,11 @@ def get_voice_tts_configs(voice_id: str, admin: dict = Depends(require_admin)):
 def link_voice_tts(voice_id: str, body: VoiceTtsLinkRequest, admin: dict = Depends(require_admin)):
     db = _sync_conn()
     try:
-        voice = db.execute("SELECT id FROM voices WHERE id = ?", (voice_id,)).fetchone()
+        voice = db.execute("SELECT id, voice_id FROM voices WHERE id = ?", (voice_id,)).fetchone()
         if not voice:
             raise HTTPException(status_code=404, detail="Voice not found")
+        if not voice["voice_id"]:
+            raise HTTPException(status_code=400, detail="Classic TTS voice is not available; clone audio for a TTS model first")
         tts = db.execute("SELECT id FROM tts_configs WHERE id = ?", (body.tts_config_id,)).fetchone()
         if not tts:
             raise HTTPException(status_code=404, detail="TTS config not found")

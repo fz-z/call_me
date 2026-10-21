@@ -5,6 +5,8 @@ import {
   realtimeBindings,
   availableRealtimeConfigs,
   getRealtimeAudioFileError,
+  createAudioSelectionGuard,
+  submitAndRefreshRealtimeBinding,
 } from '../src/utils/voiceManagement.js';
 
 const mixedBindings = [
@@ -30,4 +32,26 @@ test('realtime clone rejects unsupported files and oversize audio before upload'
   assert.match(getRealtimeAudioFileError({ name: 'sample.txt', size: 100 }), /WAV、MP3、M4A/);
   assert.match(getRealtimeAudioFileError({ name: 'sample.wav', size: 10 * 1024 * 1024 + 1 }), /10 MB/);
   assert.equal(getRealtimeAudioFileError({ name: 'sample.M4A', size: 10 * 1024 * 1024 }), '');
+});
+
+test('switching clone target invalidates an in-flight audio selection', () => {
+  const guard = createAudioSelectionGuard();
+  const firstSelection = guard.next();
+  assert.equal(guard.isCurrent(firstSelection), true);
+  guard.invalidate();
+  assert.equal(guard.isCurrent(firstSelection), false);
+  const secondSelection = guard.next();
+  assert.equal(guard.isCurrent(secondSelection), true);
+});
+
+test('a failed refresh after successful cloning does not become a failed submission', async () => {
+  let submissions = 0;
+  const refreshFailure = new Error('temporary GET failure');
+  const result = await submitAndRefreshRealtimeBinding(
+    async () => { submissions += 1; },
+    async () => { throw refreshFailure; },
+  );
+  assert.equal(submissions, 1);
+  assert.equal(result.refreshError, refreshFailure);
+  assert.equal(result.bindings, null);
 });

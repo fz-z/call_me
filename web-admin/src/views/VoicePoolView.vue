@@ -18,8 +18,11 @@
           <td><router-link class="voice-link" :to="`/voices/${voice.id}`">{{ voice.name }}</router-link></td>
           <td><span class="tag" :style="voice.type === 'builtin' ? '' : 'background:#3d2d00'">{{ voice.type === 'builtin' ? '内置' : '克隆' }}</span></td>
           <td>
-            <span v-for="config in voice._ttsConfigs" :key="config.id" class="tag tag-classic">{{ config.name }}</span>
-            <span v-if="!voice._ttsConfigs.length" class="muted">未绑定</span>
+            <span v-if="voice.has_classic_voice === false" class="muted">仅实时音色</span>
+            <template v-else>
+              <span v-for="config in voice._ttsConfigs" :key="config.id" class="tag tag-classic">{{ config.name }}</span>
+              <span v-if="!voice._ttsConfigs.length" class="muted">未绑定</span>
+            </template>
           </td>
           <td>
             <span v-for="binding in voice._runtimeBindings" :key="binding.id" class="tag tag-realtime">{{ binding.runtime_config_name }}</span>
