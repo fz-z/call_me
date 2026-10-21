@@ -113,6 +113,7 @@ class QwenRealtimeAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(update["session"]["instructions"], "Answer clearly.")
         self.assertEqual(update["session"]["voice"], "voice-private-id")
         self.assertEqual(update["session"]["modalities"], ["audio", "text"])
+        self.assertEqual(update["session"]["speech_rate"], 1.0)
         self.assertEqual(update["session"]["turn_detection"]["type"], "server_vad")
 
         greeting_item = websocket.sent[1]

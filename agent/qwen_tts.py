@@ -95,6 +95,7 @@ class QwenTTS(TTS):
         audio_format: str = "wav",
         sample_rate: int = 24000,
         num_channels: int = 1,
+        speech_rate: float = 1.0,
         request_timeout_s: float | None = None,
         extra_headers: dict[str, str] | None = None,
         extra_body: dict[str, Any] | None = None,
@@ -110,6 +111,7 @@ class QwenTTS(TTS):
         self._voice = voice
         self._voice_id = voice_id
         self._audio_format = audio_format
+        self._speech_rate = max(0.5, min(2.0, float(speech_rate)))
         self._request_timeout_s = request_timeout_s
         self._extra_headers = extra_headers or {}
         self._extra_body = extra_body or {}
@@ -211,6 +213,7 @@ class QwenTTS(TTS):
                     "voice": self._voice_id or self._voice,
                     "format": self._audio_format,
                     "sample_rate": self.sample_rate,
+                    "rate": self._speech_rate,
                 },
             }
             return _deep_merge(body, self._extra_body)
@@ -452,6 +455,7 @@ async def _call_qwen_tts_realtime_stream(*, tts: QwenTTS, text: str):
             voice=voice,
             response_format=AudioFormat.PCM_24000HZ_MONO_16BIT,
             mode="server_commit",
+            speech_rate=tts._speech_rate,
         )
         await asyncio.to_thread(client.append_text, text)
         # 官方示例：finish 会触发合成并在完成后结束会话

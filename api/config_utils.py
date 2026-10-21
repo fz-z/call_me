@@ -181,6 +181,7 @@ def resolve_agent_runtime_config(db, agent_row) -> dict:
         "alias": agent_row["alias"],
         "system_prompt": agent_row["system_prompt"],
         "runtime_mode": runtime_mode,
+        "speech_rate": float(agent_row["speech_rate"] or 1.0),
     }
     if runtime_mode == "realtime":
         base["realtime_config"] = _resolve_realtime_config(db, agent_row)

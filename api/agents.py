@@ -10,6 +10,19 @@ from config_utils import validate_agent_runtime_selection
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
+MIN_SPEECH_RATE = 0.5
+MAX_SPEECH_RATE = 2.0
+
+
+def _validate_speech_rate(value: float | None) -> float:
+    rate = 1.0 if value is None else float(value)
+    if not MIN_SPEECH_RATE <= rate <= MAX_SPEECH_RATE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"speech_rate must be between {MIN_SPEECH_RATE} and {MAX_SPEECH_RATE}",
+        )
+    return rate
+
 
 def _user_can_access(db, agent_id: str, user_id: str, role: str) -> bool:
     if role == "admin":
@@ -35,16 +48,18 @@ def create_agent(
             realtime_config_id=body.realtime_config_id,
         )
 
+        speech_rate = _validate_speech_rate(body.speech_rate)
         agent_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
         try:
             db.execute(
-                "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, voice_pool_id, source_agent_id, model_config_id, tts_config_id, runtime_mode, realtime_config_id, photo_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, voice_pool_id, source_agent_id, model_config_id, tts_config_id, runtime_mode, realtime_config_id, photo_url, speech_rate, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     agent_id, body.alias, selection["voice_id"], body.system_prompt,
                     user["id"], selection["voice_pool_id"], None,
                     selection["model_config_id"], selection["tts_config_id"],
-                    selection["runtime_mode"], selection["realtime_config_id"], body.photo_url, now,
+                    selection["runtime_mode"], selection["realtime_config_id"], body.photo_url,
+                    speech_rate, now,
                 ),
             )
         except Exception:
@@ -113,6 +128,10 @@ def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_curr
         new_photo_url = row["photo_url"] if "photo_url" in row.keys() else None
         if body.photo_url is not None:
             new_photo_url = body.photo_url if body.photo_url.strip() else None
+        new_speech_rate = (
+            row["speech_rate"] if body.speech_rate is None
+            else _validate_speech_rate(body.speech_rate)
+        )
 
         if body.voice_pool_id is not None:
             new_voice_pool_id = body.voice_pool_id
@@ -127,11 +146,11 @@ def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_curr
         )
 
         db.execute(
-            "UPDATE agents SET alias=?, system_prompt=?, model_config_id=?, voice_pool_id=?, voice_id=?, tts_config_id=?, runtime_mode=?, realtime_config_id=?, photo_url=? WHERE id=?",
+            "UPDATE agents SET alias=?, system_prompt=?, model_config_id=?, voice_pool_id=?, voice_id=?, tts_config_id=?, runtime_mode=?, realtime_config_id=?, photo_url=?, speech_rate=? WHERE id=?",
             (
                 new_alias, new_prompt, selection["model_config_id"], selection["voice_pool_id"],
                 selection["voice_id"], selection["tts_config_id"], selection["runtime_mode"],
-                selection["realtime_config_id"], new_photo_url, agent_id,
+                selection["realtime_config_id"], new_photo_url, new_speech_rate, agent_id,
             ),
         )
         db.commit()

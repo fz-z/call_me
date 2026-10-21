@@ -99,6 +99,7 @@ class QwenRealtimeAdapter:
                         "modalities": ["audio", "text"],
                         "input_audio_format": "pcm",
                         "output_audio_format": "pcm",
+                        "speech_rate": config.speech_rate,
                         "turn_detection": {"type": "server_vad"},
                     },
                 }

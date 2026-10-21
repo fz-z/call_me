@@ -19,6 +19,7 @@ export function buildAgentRuntimePayload({
   modelConfigId,
   ttsConfigId,
   photoUrl,
+  speechRate,
 }) {
   const realtime = runtimeMode === 'realtime';
   return {
@@ -30,5 +31,6 @@ export function buildAgentRuntimePayload({
     model_config_id: realtime ? null : (modelConfigId || null),
     tts_config_id: realtime ? null : (ttsConfigId || null),
     photo_url: photoUrl || '',
+    speech_rate: speechRate == null ? 1.0 : Number(speechRate),
   };
 }

@@ -43,6 +43,7 @@ test('builds a realtime agent payload without classic runtime fields', () => {
     model_config_id: null,
     tts_config_id: null,
     photo_url: '/photos/a.png',
+    speech_rate: 1.0,
   });
 });
 
@@ -65,7 +66,20 @@ test('builds a pipeline agent payload without a realtime configuration', () => {
     model_config_id: 'llm-a',
     tts_config_id: 'tts-a',
     photo_url: '',
+    speech_rate: 1.0,
   });
+});
+
+test('passes the per-agent speech rate through', () => {
+  assert.equal(buildAgentRuntimePayload({
+    alias: '快语速助手',
+    systemPrompt: '',
+    voicePoolId: 'voice-a',
+    runtimeMode: 'pipeline',
+    modelConfigId: 'llm-a',
+    ttsConfigId: 'tts-a',
+    speechRate: 1.4,
+  }).speech_rate, 1.4);
 });
 
 test('renders readable runtime labels without exposing provider voice ids', () => {

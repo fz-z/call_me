@@ -92,6 +92,52 @@ class TestAgentCRUD:
         assert data["voice_pool_id"] == voice_pool_id
         assert data["system_prompt"] == "Be helpful"
 
+    def test_agent_speech_rate_round_trip_and_validation(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
+        response = client.post(
+            "/api/agents",
+            headers=_auth_header(),
+            json={
+                "alias": "Rate Agent",
+                "voice_pool_id": voice_pool_id,
+                "speech_rate": 1.3,
+            },
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["speech_rate"] == 1.3
+        agent_id = data["id"]
+
+        from database import _sync_conn
+        from config_utils import resolve_agent_runtime_config
+
+        db = _sync_conn()
+        try:
+            row = db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
+            runtime = resolve_agent_runtime_config(db, row)
+        finally:
+            db.close()
+        assert runtime["speech_rate"] == 1.3
+
+        updated = client.patch(
+            f"/api/agents/{agent_id}",
+            headers=_auth_header(),
+            json={"speech_rate": 0.8},
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["speech_rate"] == 0.8
+
+        invalid = client.post(
+            "/api/agents",
+            headers=_auth_header(),
+            json={
+                "alias": "Invalid rate",
+                "voice_pool_id": voice_pool_id,
+                "speech_rate": 2.5,
+            },
+        )
+        assert invalid.status_code == 400
+
     def test_pipeline_agent_defaults_to_pipeline_runtime(self, clean_db):
         response = client.post(
             "/api/agents",

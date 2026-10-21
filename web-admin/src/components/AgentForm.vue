@@ -36,7 +36,9 @@
         <p class="step">Step 3/3：填写人设</p>
         <input v-model="alias" placeholder="Agent 别名" required />
         <textarea v-model="systemPrompt" rows="5" placeholder="人设描述（system prompt）"></textarea>
-        <div class="summary"><div>运行模式：<strong>{{ runtimeDisplayName(runtimeMode) }}</strong></div><div>音色：<strong>{{ selectedVoice?.name || '未选择' }}</strong></div><div v-if="runtimeMode === 'pipeline'">TTS：<strong>{{ selectedTtsName }}</strong>　LLM：<strong>{{ selectedModelName }}</strong></div><div v-else>实时模型：<strong>{{ selectedRealtimeName }}</strong></div></div>
+        <label>语速：{{ speechRate.toFixed(1) }}x（0.5 慢 – 2.0 快）</label>
+        <input v-model.number="speechRate" type="range" min="0.5" max="2" step="0.1" />
+        <div class="summary"><div>运行模式：<strong>{{ runtimeDisplayName(runtimeMode) }}</strong></div><div>音色：<strong>{{ selectedVoice?.name || '未选择' }}</strong></div><div v-if="runtimeMode === 'pipeline'">TTS：<strong>{{ selectedTtsName }}</strong>　LLM：<strong>{{ selectedModelName }}</strong></div><div v-else>实时模型：<strong>{{ selectedRealtimeName }}</strong></div><div>语速：<strong>{{ speechRate.toFixed(1) }}x</strong></div></div>
         <p v-if="error" class="error">{{ error }}</p>
         <div class="modal-actions"><button class="btn-ghost" @click="step = 2">上一步</button><button class="btn btn-primary" :disabled="saving" @click="submit">{{ saving ? '保存中…' : (editId ? '更新' : '创建 Agent') }}</button></div>
       </section>
@@ -49,10 +51,10 @@ import { computed, onMounted, ref } from 'vue';
 import api from '../api.js';
 import { buildAgentRuntimePayload, filterRealtimeVoices, runtimeDisplayName } from '../utils/agentRuntimeForm.js';
 
-const props = defineProps({ editId: String, editAlias: String, editPrompt: String, editModelConfigId: String, editVoicePoolId: String, editTtsConfigId: String, editRealtimeConfigId: String, editRuntimeMode: String, editPhotoUrl: String });
+const props = defineProps({ editId: String, editAlias: String, editPrompt: String, editModelConfigId: String, editVoicePoolId: String, editTtsConfigId: String, editRealtimeConfigId: String, editRuntimeMode: String, editPhotoUrl: String, editSpeechRate: [String, Number] });
 const emit = defineEmits(['close', 'saved']);
 const step = ref(1); const runtimeMode = ref(props.editRuntimeMode || 'pipeline'); const allVoices = ref([]); const bindingsByVoice = ref({}); const ttsByVoice = ref({}); const modelConfigs = ref([]); const realtimeConfigs = ref([]);
-const selectedVoiceId = ref(props.editVoicePoolId || ''); const selectedTtsConfigId = ref(props.editTtsConfigId || ''); const selectedModelConfigId = ref(props.editModelConfigId || ''); const selectedRealtimeConfigId = ref(props.editRealtimeConfigId || ''); const alias = ref(props.editAlias || ''); const systemPrompt = ref(props.editPrompt || ''); const saving = ref(false); const error = ref('');
+const selectedVoiceId = ref(props.editVoicePoolId || ''); const selectedTtsConfigId = ref(props.editTtsConfigId || ''); const selectedModelConfigId = ref(props.editModelConfigId || ''); const selectedRealtimeConfigId = ref(props.editRealtimeConfigId || ''); const alias = ref(props.editAlias || ''); const systemPrompt = ref(props.editPrompt || ''); const speechRate = ref(props.editSpeechRate == null ? 1.0 : Number(props.editSpeechRate)); const saving = ref(false); const error = ref('');
 const selectedVoice = computed(() => allVoices.value.find((voice) => voice.id === selectedVoiceId.value));
 const selectedVoiceTtsConfigs = computed(() => ttsByVoice.value[selectedVoiceId.value] || []);
 const realtimeVoices = computed(() => filterRealtimeVoices(allVoices.value, bindingsByVoice.value, selectedRealtimeConfigId.value));
@@ -81,7 +83,7 @@ async function load() {
     if (runtimeMode.value === 'pipeline') selectPipelineVoice();
   } catch (requestError) { error.value = requestError.response?.data?.detail || '加载 Agent 配置失败'; }
 }
-async function submit() { if (!alias.value.trim()) { error.value = '请输入 Agent 别名'; return; } saving.value = true; error.value = ''; try { const body = buildAgentRuntimePayload({ alias: alias.value.trim(), systemPrompt: systemPrompt.value, voicePoolId: selectedVoiceId.value, runtimeMode: runtimeMode.value, realtimeConfigId: selectedRealtimeConfigId.value, modelConfigId: selectedModelConfigId.value, ttsConfigId: selectedTtsConfigId.value, photoUrl: props.editPhotoUrl || '' }); if (props.editId) await api.patch(`/agents/${props.editId}`, body); else await api.post('/agents', body); emit('saved'); emit('close'); } catch (requestError) { error.value = requestError.response?.data?.detail || '保存失败'; } finally { saving.value = false; } }
+async function submit() { if (!alias.value.trim()) { error.value = '请输入 Agent 别名'; return; } saving.value = true; error.value = ''; try { const body = buildAgentRuntimePayload({ alias: alias.value.trim(), systemPrompt: systemPrompt.value, voicePoolId: selectedVoiceId.value, runtimeMode: runtimeMode.value, realtimeConfigId: selectedRealtimeConfigId.value, modelConfigId: selectedModelConfigId.value, ttsConfigId: selectedTtsConfigId.value, photoUrl: props.editPhotoUrl || '', speechRate: speechRate.value }); if (props.editId) await api.patch(`/agents/${props.editId}`, body); else await api.post('/agents', body); emit('saved'); emit('close'); } catch (requestError) { error.value = requestError.response?.data?.detail || '保存失败'; } finally { saving.value = false; } }
 onMounted(load);
 </script>
 

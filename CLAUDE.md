@@ -140,6 +140,7 @@ web-admin/src/
 - Agent speaks first on call connect (LLM-generated greeting).
 - STT default: `livekit` (Deepgram via LiveKit Cloud). Global config, not per-agent.
 - Qwen Audio TTS models (`qwen-audio-*-tts-*`) use the workspace-scoped `SpeechSynthesizer` HTTP API. Both API and Agent Worker need `DASHSCOPE_WORKSPACE` or `QWEN_AUDIO_TTS_API_URL` in the same region as the API key. Provider voice IDs are model-specific and cannot be reused across models.
+- Per-Agent `speech_rate` (0.5–2.0, default 1.0) controls speaking speed from the Agent page: pipeline passes `input.rate` to Qwen Audio TTS; realtime passes `session.speech_rate`.
 - Turn detection uses `TurnHandlingOptions` API.
 - Agent creation is JSON body (no multipart). `voice_pool_id` is required.
 - FK validation on create_agent: voice_pool_id, tts_config_id, model_config_id checked before INSERT.

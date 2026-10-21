@@ -18,8 +18,9 @@ class RealtimeRuntimeConfig:
     api_key: str
     provider_voice_id: str
     system_prompt: str
+    speech_rate: float = 1.0
 
-    def redacted(self) -> dict[str, str]:
+    def redacted(self) -> dict[str, object]:
         """Return diagnostics-safe configuration without usable credentials."""
         return {
             "provider": self.provider,
@@ -28,6 +29,7 @@ class RealtimeRuntimeConfig:
             "api_key": "***",
             "provider_voice_id": "***",
             "system_prompt": self.system_prompt,
+            "speech_rate": self.speech_rate,
         }
 
 

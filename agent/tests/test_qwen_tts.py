@@ -53,9 +53,21 @@ class QwenTTSTests(unittest.TestCase):
                     "voice": "qwen-audio-3.1-tts-flash-ls-1234",
                     "format": "wav",
                     "sample_rate": 24000,
+                    "rate": 1.0,
                 },
             },
         )
+
+    def test_qwen_audio_build_body_includes_agent_speech_rate(self):
+        tts = QwenTTS(
+            api_url="https://workspace.example/synthesize",
+            api_key="secret",
+            model="qwen-audio-3.1-tts-flash",
+            voice_id="voice",
+            speech_rate=1.4,
+        )
+
+        self.assertEqual(tts._build_body(text="你好")["input"]["rate"], 1.4)
 
     def test_legacy_qwen_body_keeps_response_format(self):
         tts = QwenTTS(

@@ -510,6 +510,7 @@ async def run_pipeline_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
                 api_key=tc["api_key"],
                 model=tc["model"],
                 voice_id=voice_id,
+                speech_rate=float(runtime.get("speech_rate") or 1.0),
             )
             tts_configured = True
         else:
@@ -521,6 +522,7 @@ async def run_pipeline_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
             api_key=os.getenv("DASHSCOPE_API_KEY", ""),
             model="qwen3-tts-flash-realtime",
             voice_id=voice_id,
+            speech_rate=float(runtime.get("speech_rate") or 1.0),
         )
         tts_provider = "qwen"
     else:
@@ -664,6 +666,7 @@ async def run_realtime_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
         api_key=realtime["api_key"],
         provider_voice_id=realtime["voice_id"],
         system_prompt=runtime.get("system_prompt") or "",
+        speech_rate=float(runtime.get("speech_rate") or 1.0),
     )
     logger.info("Starting realtime call provider=%s model=%s", config.provider, config.model)
     started_at = time.time()

@@ -51,7 +51,8 @@ def init_db():
                 voice_id TEXT NOT NULL,
                 system_prompt TEXT NOT NULL DEFAULT '',
                 owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                speech_rate REAL NOT NULL DEFAULT 1.0
             );
 
             CREATE TABLE IF NOT EXISTS permissions (
@@ -397,6 +398,12 @@ def init_db():
             conn.execute(
                 "ALTER TABLE agents ADD COLUMN realtime_config_id TEXT "
                 "REFERENCES realtime_configs(id) ON DELETE SET NULL"
+            )
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute(
+                "ALTER TABLE agents ADD COLUMN speech_rate REAL NOT NULL DEFAULT 1.0"
             )
         except sqlite3.OperationalError:
             pass

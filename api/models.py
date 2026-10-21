@@ -51,6 +51,7 @@ class AgentCreate(BaseModel):
     runtime_mode: str = "pipeline"
     realtime_config_id: Optional[str] = None
     photo_url: Optional[str] = None
+    speech_rate: float = 1.0
 
 
 class AgentUpdate(BaseModel):
@@ -62,6 +63,7 @@ class AgentUpdate(BaseModel):
     runtime_mode: Optional[str] = None
     realtime_config_id: Optional[str] = None
     photo_url: Optional[str] = None
+    speech_rate: Optional[float] = None
 
 
 class AgentOut(BaseModel):
@@ -77,6 +79,7 @@ class AgentOut(BaseModel):
     realtime_config_id: Optional[str] = None
     photo_url: Optional[str] = None
     created_at: str
+    speech_rate: float = 1.0
 
 
 class PermissionOut(BaseModel):
