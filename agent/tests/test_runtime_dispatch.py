@@ -242,6 +242,40 @@ class RuntimeDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pipeline_calls[0][2], "call-1")
         self.assertEqual(ctx.connect_calls, 0, "pipeline setup owns the one metadata fast-path connection")
 
+    async def test_entrypoint_falls_back_to_participant_agent_config(self):
+        ctx = FakeContext("")
+        participant = type(
+            "Participant",
+            (),
+            {
+                "attributes": {
+                    "agent_config": json.dumps(
+                        {
+                            "agent_id": "agent-1",
+                            "call_log_id": "call-1",
+                            "runtime_mode": "pipeline",
+                        }
+                    )
+                }
+            },
+        )()
+        ctx.room.remote_participants = {"caller": participant}
+        pipeline_calls = []
+
+        async def fake_pipeline(context, runtime, call_log_id):
+            pipeline_calls.append((context, runtime, call_log_id))
+
+        runtime = {"agent_id": "agent-1", "runtime_mode": "pipeline", "system_prompt": "hi"}
+        with patch("agent._fetch_runtime_secrets", return_value=runtime), patch(
+            "agent.run_pipeline_call", new=fake_pipeline
+        ):
+            await entrypoint(ctx)
+
+        self.assertEqual(len(pipeline_calls), 1)
+        self.assertEqual(pipeline_calls[0][2], "call-1")
+        self.assertEqual(ctx.connect_calls, 1)
+        self.assertEqual(ctx.room.disconnect_calls, 0)
+
     async def test_entrypoint_dispatches_realtime_without_constructing_pipeline_defaults(self):
         ctx = FakeContext(json.dumps({"agent_id": "agent-1", "call_log_id": "call-1", "runtime_mode": "realtime"}))
         realtime_calls = []

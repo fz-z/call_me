@@ -94,6 +94,31 @@ def _parse_worker_metadata(raw_metadata: str | None) -> dict[str, str]:
     return metadata
 
 
+async def _resolve_dispatch_metadata(ctx: JobContext, timeout: float = 15.0) -> dict[str, str]:
+    """Read dispatch metadata from the job, falling back to caller attributes.
+
+    LiveKit automatic dispatch does not populate ``job.metadata`` for the
+    participant-attribute contract used by the API token.  The old pipeline
+    worker read ``agent_config`` from the caller's attributes after connecting;
+    keep that as a fallback so dispatch survives either delivery mechanism.
+    """
+    try:
+        return _parse_worker_metadata(ctx.job.metadata)
+    except RuntimeError:
+        pass
+
+    await ctx.connect()
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for participant in ctx.room.remote_participants.values():
+            attributes = getattr(participant, "attributes", None) or {}
+            raw_metadata = attributes.get("agent_config")
+            if raw_metadata:
+                return _parse_worker_metadata(raw_metadata)
+        await asyncio.sleep(0.2)
+    raise RuntimeError("Worker dispatch metadata is missing")
+
+
 def _safe_failure_reason(error: Exception) -> str:
     """Keep Worker callback diagnostics useful without serializing secrets."""
     if isinstance(error, RealtimeRuntimeError):
@@ -751,7 +776,7 @@ async def entrypoint(ctx: JobContext):
     metadata: dict[str, str] | None = None
     started_at = time.time()
     try:
-        metadata = _parse_worker_metadata(ctx.job.metadata)
+        metadata = await _resolve_dispatch_metadata(ctx)
         runtime = await asyncio.to_thread(_fetch_runtime_secrets, metadata["agent_id"])
         if not isinstance(runtime, dict):
             raise RuntimeError("Worker runtime payload is invalid")
