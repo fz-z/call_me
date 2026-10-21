@@ -14,7 +14,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from .base import RealtimeEvent, RealtimeRuntimeConfig, RealtimeRuntimeError
 
 logger = logging.getLogger("realtime.qwen")
-MAX_PENDING_OUTPUT_BYTES = 24_000 * 2 * 5  # At most five seconds of PCM16 audio.
+MAX_PENDING_OUTPUT_BYTES = 24_000 * 2 * 60  # At most 60 seconds (2.88 MB) of PCM16 audio.
 OUTPUT_CHUNK_BYTES = 24_000 * 2 // 50  # 20 ms; never give LiveKit one long uncancellable frame.
 
 

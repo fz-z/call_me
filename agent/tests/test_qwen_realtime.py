@@ -122,6 +122,23 @@ def runtime_config(**overrides):
 
 
 class QwenRealtimeAdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_six_second_output_burst_does_not_close_call(self):
+        bridge = BlockingOutputBridge()
+        adapter = QwenRealtimeAdapter(runtime_config())
+        adapter._bridge = bridge
+        pcm = b"\x01\x00" * (24_000 * 6)
+
+        try:
+            await adapter._handle_message(json.dumps({
+                "type": "response.audio.delta",
+                "delta": base64.b64encode(pcm).decode("ascii"),
+            }))
+            await asyncio.wait_for(bridge.publish_started.wait(), timeout=1)
+            self.assertEqual(adapter._pending_output_bytes, len(pcm))
+            self.assertFalse(adapter._output_task.done())
+        finally:
+            await adapter.close()
+
     async def test_output_backlog_is_bounded(self):
         adapter = QwenRealtimeAdapter(runtime_config())
         adapter._bridge = BlockingOutputBridge()
