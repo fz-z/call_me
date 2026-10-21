@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createGenerationGuard } from '../src/utils/voiceManagement.js';
-import { getRealtimeAuditionTextError, runCurrentPreview, splitRealtimeAuditionText } from '../src/utils/realtimeVoiceAudition.js';
+import { createSilentAuditionWav, getRealtimeAuditionTextError, isSilentRealtimeAuditionSegment, runCurrentPreview, splitRealtimeAuditionText } from '../src/utils/realtimeVoiceAudition.js';
 
 test('one-off audition text is required and limited to 3000 code points', () => {
   assert.match(getRealtimeAuditionTextError('  '), /请输入/);
@@ -26,12 +26,15 @@ test('a long sentence splits by Unicode code point without loss', () => {
   assert.equal(splitRealtimeAuditionText(input).join(''), input);
 });
 
-test('a long whitespace run never creates a server-rejected empty segment', () => {
+test('a long whitespace run is preserved and its blank segment is identified for local silence', () => {
   const input = `${'字'.repeat(120)}${' '.repeat(120)}尾`;
   const segments = splitRealtimeAuditionText(input);
-  assert.ok(segments.every((part) => part.trim().length > 0));
+  assert.ok(segments.some(isSilentRealtimeAuditionSegment));
   assert.ok(segments.every((part) => Array.from(part).length <= 120));
-  assert.equal(segments.join(''), `${'字'.repeat(120)} 尾`);
+  assert.equal(segments.join(''), input);
+  const silence = createSilentAuditionWav();
+  assert.equal(new TextDecoder().decode(silence.slice(0, 4)), 'RIFF');
+  assert.equal(new TextDecoder().decode(silence.slice(8, 12)), 'WAVE');
 });
 
 test('a response from a closed preview is discarded', async () => {
@@ -64,4 +67,5 @@ test('audition modal wires the queue and long-text playback controls', () => {
   assert.match(component, /停止/);
   assert.match(component, /重试当前段/);
   assert.match(component, /queue\.failPlayback/);
+  assert.match(component, /isSilentRealtimeAuditionSegment/);
 });

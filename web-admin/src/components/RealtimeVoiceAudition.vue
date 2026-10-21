@@ -38,7 +38,8 @@ import api from '../api.js';
 import { createRealtimeAuditionQueue } from '../utils/realtimeAuditionQueue.js';
 import {
   DEFAULT_REALTIME_AUDITION_TEXT, MAX_REALTIME_AUDITION_TEXT_LENGTH,
-  getRealtimeAuditionTextError, splitRealtimeAuditionText,
+  createSilentAuditionWav, getRealtimeAuditionTextError,
+  isSilentRealtimeAuditionSegment, splitRealtimeAuditionText,
 } from '../utils/realtimeVoiceAudition.js';
 
 const props = defineProps({ voiceId: { type: String, required: true }, binding: { type: Object, required: true } });
@@ -51,6 +52,7 @@ const characterCount = computed(() => Array.from(text.value.trim()).length);
 
 const queue = createRealtimeAuditionQueue({
   request: async (part, signal) => {
+    if (isSilentRealtimeAuditionSegment(part)) return { silent: true };
     try {
       const response = await api.post(
         `/admin/voices/${props.voiceId}/realtime-bindings/${props.binding.runtime_config_id}/audition`,
@@ -62,6 +64,9 @@ const queue = createRealtimeAuditionQueue({
     }
   },
   makeUrl: (audio) => {
+    if (audio.silent) {
+      return URL.createObjectURL(new Blob([createSilentAuditionWav()], { type: 'audio/wav' }));
+    }
     const bytes = Uint8Array.from(atob(audio.audio_base64), (char) => char.charCodeAt(0));
     return URL.createObjectURL(new Blob([bytes], { type: audio.mime_type }));
   },
