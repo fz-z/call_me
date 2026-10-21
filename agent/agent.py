@@ -487,7 +487,12 @@ async def run_pipeline_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
     # STT
     stt_provider = os.getenv("STT_PROVIDER", "livekit").strip().lower()
     if stt_provider == "qwen":
-        stt = QwenASRRealtimeSTT.from_env()
+        # The runtime-selected provider key is authoritative; the bootstrap
+        # DASHSCOPE_API_KEY may be stale after admin-side key rotation.
+        stt_key = (config.get("model_config") or {}).get("api_key") or (
+            config.get("tts_config") or {}
+        ).get("api_key")
+        stt = QwenASRRealtimeSTT.from_env(api_key=stt_key)
     else:
         stt_model = os.getenv("STT_MODEL", "deepgram/nova-2").strip()
         stt_language = os.getenv("STT_LANGUAGE", "zh-CN").strip()

@@ -100,12 +100,18 @@ class QwenASRRealtimeSTT(STT):
             raise RuntimeError("缺少 DASHSCOPE_API_KEY（用于通义 ASR Realtime）")
 
     @classmethod
-    def from_env(cls) -> QwenASRRealtimeSTT:
+    def from_env(cls, api_key: str | None = None) -> QwenASRRealtimeSTT:
         model = os.getenv("QWEN_ASR_MODEL", "qwen3-asr-flash-realtime").strip()
         ws_url = os.getenv("QWEN_ASR_REALTIME_WS_URL", "").strip() or None
         sample_rate = int(os.getenv("QWEN_ASR_SAMPLE_RATE", "16000"))
         language = os.getenv("QWEN_ASR_LANGUAGE", "zh").strip()
-        return cls(model=model, ws_url=ws_url, sample_rate=sample_rate, language=language)
+        return cls(
+            model=model,
+            api_key=api_key,
+            ws_url=ws_url,
+            sample_rate=sample_rate,
+            language=language,
+        )
 
     @property
     def model(self) -> str:
