@@ -10,6 +10,10 @@ export function filterRealtimeVoices(voices, bindingsByVoice, realtimeConfigId) 
   ));
 }
 
+export function filterClassicVoices(voices) {
+  return voices.filter((voice) => voice.has_classic_voice !== false);
+}
+
 export function buildAgentRuntimePayload({
   alias,
   systemPrompt,

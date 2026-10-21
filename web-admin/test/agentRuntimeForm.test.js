@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   filterRealtimeVoices,
+  filterClassicVoices,
   runtimeDisplayName,
   buildAgentRuntimePayload,
 } from '../src/utils/agentRuntimeForm.js';
@@ -22,6 +23,13 @@ test('only offers voices bound to the selected realtime config', () => {
     filterRealtimeVoices(voices, bindings, 'realtime-a').map((voice) => voice.id),
     ['voice-a'],
   );
+});
+
+test('pipeline choices exclude voices that exist only for realtime models', () => {
+  assert.deepEqual(filterClassicVoices([
+    { id: 'classic', has_classic_voice: true },
+    { id: 'realtime-only', has_classic_voice: false },
+  ]).map((voice) => voice.id), ['classic']);
 });
 
 test('builds a realtime agent payload without classic runtime fields', () => {

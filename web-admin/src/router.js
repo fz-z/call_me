@@ -6,6 +6,7 @@ import UserListView from './views/UserListView.vue';
 import UserDetailView from './views/UserDetailView.vue';
 import ModelConfigListView from './views/ModelConfigListView.vue';
 import VoicePoolView from './views/VoicePoolView.vue';
+import VoiceDetailView from './views/VoiceDetailView.vue';
 import TtsConfigListView from './views/TtsConfigListView.vue';
 import RealtimeConfigListView from './views/RealtimeConfigListView.vue';
 import ApiKeyListView from './views/ApiKeyListView.vue';
@@ -21,6 +22,7 @@ const routes = [
   { path: '/users/:username', component: UserDetailView, props: true },
   { path: '/model-configs', component: ModelConfigListView },
   { path: '/voices', component: VoicePoolView },
+  { path: '/voices/:id', component: VoiceDetailView, props: true },
   { path: '/tts-configs', component: TtsConfigListView },
   { path: '/realtime-configs', component: RealtimeConfigListView },
   { path: '/api-keys', component: ApiKeyListView },
