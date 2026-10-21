@@ -153,3 +153,20 @@ test('a failed segment can be retried without replaying completed segments', asy
   await tick();
   assert.deepEqual(h.played, ['blob:one', 'blob:two']);
 });
+
+test('a media decode error enters retry state and regenerates only the current segment', async () => {
+  const h = harness();
+  h.queue.start(['一', '二']);
+  h.requests[0].resolve('one');
+  await tick();
+  h.queue.failPlayback('音频播放失败。');
+  assert.equal(h.queue.state.status, 'error');
+  assert.match(h.queue.state.error, /音频播放失败/);
+  assert.deepEqual(h.revoked, ['blob:one']);
+  assert.equal(h.requests[1].signal.aborted, true);
+  h.queue.retry();
+  assert.deepEqual(h.requests.map((item) => item.text), ['一', '二', '一']);
+  h.requests[2].resolve('one-retry');
+  await tick();
+  assert.deepEqual(h.played, ['blob:one', 'blob:one-retry']);
+});

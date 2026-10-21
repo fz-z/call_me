@@ -16,7 +16,6 @@
         <span v-else-if="queueState.status === 'completed'"> · 试听完成</span>
       </p>
       <audio ref="player" :src="audioUrl" @ended="queue.ended()" @error="onAudioError"></audio>
-      <p v-if="audioError" class="error" role="alert">{{ audioError }}</p>
       <div v-if="queueState.total" class="playback-actions">
         <button v-if="queueState.status === 'playing'" type="button" class="btn-ghost" @click="queue.pause()">暂停</button>
         <button v-if="queueState.status === 'paused'" type="button" class="btn-ghost" @click="queue.resume()">继续</button>
@@ -46,7 +45,6 @@ const props = defineProps({ voiceId: { type: String, required: true }, binding: 
 const emit = defineEmits(['close']);
 const text = ref(DEFAULT_REALTIME_AUDITION_TEXT);
 const audioUrl = ref('');
-const audioError = ref('');
 const player = ref(null);
 const queueState = ref({ status: 'idle', index: 0, total: 0, error: '' });
 const characterCount = computed(() => Array.from(text.value.trim()).length);
@@ -70,7 +68,6 @@ const queue = createRealtimeAuditionQueue({
   revokeUrl: (url) => URL.revokeObjectURL(url),
   play: async (url) => {
     audioUrl.value = url;
-    audioError.value = '';
     await nextTick();
     await player.value?.play();
   },
@@ -79,18 +76,17 @@ const queue = createRealtimeAuditionQueue({
     queueState.value = state;
     if (state.status === 'idle' || state.status === 'completed') {
       audioUrl.value = '';
-      audioError.value = '';
     }
   },
 });
 
 function submit() {
   if (getRealtimeAuditionTextError(text.value)) return;
-  audioError.value = '';
   queue.start(splitRealtimeAuditionText(text.value));
 }
 function onAudioError() {
-  if (queueState.value.status === 'playing') audioError.value = '音频播放失败。';
+  queue.failPlayback('音频播放失败。');
+  audioUrl.value = '';
 }
 function close() { queue.dispose(); emit('close'); }
 watch(() => [props.voiceId, props.binding.runtime_config_id], () => {

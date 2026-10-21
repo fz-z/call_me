@@ -143,6 +143,21 @@ export function createRealtimeAuditionQueue({ request, makeUrl, revokeUrl, play,
       emit();
       load(index);
     },
+    failPlayback(message = '音频播放失败。') {
+      if (status !== 'playing' && status !== 'paused') return;
+      generation++;
+      inFlight?.controller.abort();
+      inFlight = null;
+      pause();
+      release(currentUrl);
+      release(nextUrl);
+      currentUrl = '';
+      nextUrl = '';
+      nextError = '';
+      status = 'error';
+      error = message;
+      emit();
+    },
     stop,
     dispose: stop,
   };

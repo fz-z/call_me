@@ -13,7 +13,11 @@ export function getRealtimeAuditionTextError(text) {
 
 export function splitRealtimeAuditionText(text, maxLength = MAX_REALTIME_AUDITION_SEGMENT_LENGTH) {
   if (!Number.isInteger(maxLength) || maxLength < 1) throw new RangeError('Invalid segment length');
-  const characters = Array.from(text.trim());
+  // A whitespace-only segment is rejected by the single-segment API. Collapse
+  // only runs too long to fit beside a spoken character in one segment.
+  const normalized = text.trim().replace(/\s+/gu, (run) =>
+    Array.from(run).length >= maxLength ? (run.includes('\n') ? '\n' : ' ') : run);
+  const characters = Array.from(normalized);
   const segments = [];
   for (let start = 0; start < characters.length;) {
     let end = Math.min(start + maxLength, characters.length);
