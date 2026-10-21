@@ -5,7 +5,7 @@ import {
   realtimeBindings,
   availableRealtimeConfigs,
   getRealtimeAudioFileError,
-  createAudioSelectionGuard,
+  createGenerationGuard,
   submitAndRefreshRealtimeBinding,
 } from '../src/utils/voiceManagement.js';
 
@@ -35,13 +35,21 @@ test('realtime clone rejects unsupported files and oversize audio before upload'
 });
 
 test('switching clone target invalidates an in-flight audio selection', () => {
-  const guard = createAudioSelectionGuard();
+  const guard = createGenerationGuard();
   const firstSelection = guard.next();
   assert.equal(guard.isCurrent(firstSelection), true);
   guard.invalidate();
   assert.equal(guard.isCurrent(firstSelection), false);
   const secondSelection = guard.next();
   assert.equal(guard.isCurrent(secondSelection), true);
+});
+
+test('a newer detail load invalidates an older response', () => {
+  const guard = createGenerationGuard();
+  const oldLoad = guard.next();
+  const newLoad = guard.next();
+  assert.equal(guard.isCurrent(oldLoad), false);
+  assert.equal(guard.isCurrent(newLoad), true);
 });
 
 test('a failed refresh after successful cloning does not become a failed submission', async () => {

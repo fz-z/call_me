@@ -23,11 +23,12 @@ export function getRealtimeAudioFileError(file) {
   return '';
 }
 
-export function createAudioSelectionGuard() {
+export function createGenerationGuard() {
   let current = 0;
   return {
     next() { current += 1; return current; },
     invalidate() { current += 1; },
+    current() { return current; },
     isCurrent(value) { return value === current; },
   };
 }

@@ -149,7 +149,7 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../api.js';
 import { getRealtimeAudioDurationError } from '../utils/audioDuration.js';
-import { availableRealtimeConfigs, createAudioSelectionGuard, getRealtimeAudioFileError, realtimeBindings, submitAndRefreshRealtimeBinding } from '../utils/voiceManagement.js';
+import { availableRealtimeConfigs, createGenerationGuard, getRealtimeAudioFileError, realtimeBindings, submitAndRefreshRealtimeBinding } from '../utils/voiceManagement.js';
 
 const route = useRoute();
 const loading = ref(true); const notFound = ref(false); const pageError = ref('');
@@ -162,7 +162,9 @@ const voiceAgents = computed(() => agents.value.filter((agent) => agent.voice_po
 
 const cloneForm = reactive({ open: false, mode: 'new', configId: '', audioFile: null, authorized: false });
 const cloneSaving = ref(false); const audioValidating = ref(false); const cloneInputKey = ref(0);
-const audioSelectionGuard = createAudioSelectionGuard();
+const audioSelectionGuard = createGenerationGuard();
+const loadGuard = createGenerationGuard();
+const auditionGuard = createGenerationGuard();
 const realtimeError = ref(''); const realtimeNotice = ref(''); const realtimeRefreshFailed = ref(false);
 const cloneTargetName = computed(() => realtimeConfigs.value.find((config) => config.id === cloneForm.configId)?.name || realtimeRows.value.find((row) => row.runtime_config_id === cloneForm.configId)?.runtime_config_name || '未知模型');
 
@@ -174,23 +176,32 @@ const auditionLoading = ref(false); const auditionPlaying = ref(false); const au
 let auditionAudio = null; let auditionUrl = null;
 
 async function load() {
+  const requestedId = route.params.id;
+  const generation = loadGuard.next();
   loading.value = true; notFound.value = false; pageError.value = '';
   try {
     const voiceResult = await api.get('/admin/voices');
-    const selected = voiceResult.data.find((item) => item.id === route.params.id);
+    if (!loadGuard.isCurrent(generation)) return;
+    const selected = voiceResult.data.find((item) => item.id === requestedId);
     if (!selected) { voice.value = null; notFound.value = true; return; }
     const [tts, runtime, agentResult, ttsConfigResult, realtimeConfigResult] = await Promise.all([
       api.get(`/admin/voices/${selected.id}/tts-configs`),
       api.get(`/admin/voices/${selected.id}/runtime-bindings`),
       api.get('/admin/agents'), api.get('/admin/tts-configs'), api.get('/admin/realtime-configs'),
     ]);
+    if (!loadGuard.isCurrent(generation)) return;
     voice.value = selected; ttsLinks.value = tts.data; runtimeRows.value = runtime.data;
     realtimeRefreshFailed.value = false; realtimeError.value = '';
     agents.value = agentResult.data; ttsConfigs.value = ttsConfigResult.data; realtimeConfigs.value = realtimeConfigResult.data;
   } catch (error) {
+    if (!loadGuard.isCurrent(generation)) return;
     voice.value = null;
     pageError.value = error.response?.data?.detail || '音色数据加载失败，请重试。';
-  } finally { loading.value = false; }
+  } finally { if (loadGuard.isCurrent(generation)) loading.value = false; }
+}
+
+function activeVoice(id, generation) {
+  return route.params.id === id && loadGuard.isCurrent(generation);
 }
 
 function openNewClone() {
@@ -244,15 +255,18 @@ async function submitClone() {
     realtimeError.value = '找不到要替换的实时绑定，请刷新页面。'; return;
   }
   if (cloneForm.mode === 'replace' && !confirm('重新复刻会替换此实时模型当前绑定，使用该绑定的 Agent 后续通话会使用新音色。确定继续吗？')) return;
+  const voiceId = voice.value.id; const generation = loadGuard.current();
+  const mode = cloneForm.mode;
   cloneSaving.value = true; realtimeError.value = '';
   try {
     const data = new FormData(); data.append('realtime_config_id', cloneForm.configId);
     data.append('audio_file', cloneForm.audioFile); data.append('authorization_confirmed', 'true');
     const result = await submitAndRefreshRealtimeBinding(
-      () => api.post(`/admin/voices/${voice.value.id}/realtime-bindings`, data),
-      async () => (await api.get(`/admin/voices/${voice.value.id}/runtime-bindings`)).data,
+      () => api.post(`/admin/voices/${voiceId}/realtime-bindings`, data),
+      async () => (await api.get(`/admin/voices/${voiceId}/runtime-bindings`)).data,
     );
-    realtimeNotice.value = cloneForm.mode === 'replace' ? '已更新该实时模型音色。' : '实时模型音色已复刻，可直接用于 Agent。';
+    if (!activeVoice(voiceId, generation)) return;
+    realtimeNotice.value = mode === 'replace' ? '已更新该实时模型音色。' : '实时模型音色已复刻，可直接用于 Agent。';
     closeClone();
     if (result.refreshError) {
       realtimeRefreshFailed.value = true;
@@ -261,47 +275,61 @@ async function submitClone() {
       runtimeRows.value = result.bindings;
       realtimeRefreshFailed.value = false;
     }
-  } catch (error) { realtimeError.value = error.response?.data?.detail || '音色复刻失败，请重试。'; }
-  finally { cloneSaving.value = false; }
+  } catch (error) { if (activeVoice(voiceId, generation)) realtimeError.value = error.response?.data?.detail || '音色复刻失败，请重试。'; }
+  finally { if (activeVoice(voiceId, generation)) cloneSaving.value = false; }
 }
 
 async function refreshRealtimeBindings() {
+  const voiceId = voice.value.id; const generation = loadGuard.current();
   try {
-    runtimeRows.value = (await api.get(`/admin/voices/${voice.value.id}/runtime-bindings`)).data;
+    const result = await api.get(`/admin/voices/${voiceId}/runtime-bindings`);
+    if (!activeVoice(voiceId, generation)) return;
+    runtimeRows.value = result.data;
     realtimeRefreshFailed.value = false; realtimeError.value = '';
-  } catch (error) { realtimeError.value = error.response?.data?.detail || '绑定列表仍无法刷新，请稍后再试。'; }
+  } catch (error) { if (activeVoice(voiceId, generation)) realtimeError.value = error.response?.data?.detail || '绑定列表仍无法刷新，请稍后再试。'; }
 }
 
 async function addTtsLink() {
   if (!addTtsId.value || ttsBusy.value) return;
   if (voice.value.has_classic_voice === false) { ttsError.value = '此档案还没有经典 TTS 音色，不能只添加模型关联。'; return; }
+  const voiceId = voice.value.id; const generation = loadGuard.current();
+  const configId = addTtsId.value;
   ttsBusy.value = true; ttsError.value = '';
   try {
-    await api.post(`/admin/voices/${voice.value.id}/tts-configs`, { tts_config_id: addTtsId.value });
-    ttsLinks.value = (await api.get(`/admin/voices/${voice.value.id}/tts-configs`)).data;
+    await api.post(`/admin/voices/${voiceId}/tts-configs`, { tts_config_id: configId });
+    const result = await api.get(`/admin/voices/${voiceId}/tts-configs`);
+    if (!activeVoice(voiceId, generation)) return;
+    ttsLinks.value = result.data;
     addTtsId.value = '';
-  } catch (error) { ttsError.value = error.response?.data?.detail || '添加 TTS 绑定失败。'; }
-  finally { ttsBusy.value = false; }
+  } catch (error) { if (activeVoice(voiceId, generation)) ttsError.value = error.response?.data?.detail || '添加 TTS 绑定失败。'; }
+  finally { if (activeVoice(voiceId, generation)) ttsBusy.value = false; }
 }
 async function removeTtsLink(config) {
   if (ttsBusy.value || !confirm(`确定移除“${config.name}”的经典 TTS 关联吗？`)) return;
+  const voiceId = voice.value.id; const generation = loadGuard.current();
   ttsBusy.value = true; ttsError.value = '';
   try {
-    await api.delete(`/admin/voices/${voice.value.id}/tts-configs/${config.id}`);
-    ttsLinks.value = (await api.get(`/admin/voices/${voice.value.id}/tts-configs`)).data;
-  } catch (error) { ttsError.value = error.response?.data?.detail || '移除 TTS 绑定失败。'; }
-  finally { ttsBusy.value = false; }
+    await api.delete(`/admin/voices/${voiceId}/tts-configs/${config.id}`);
+    const result = await api.get(`/admin/voices/${voiceId}/tts-configs`);
+    if (!activeVoice(voiceId, generation)) return;
+    ttsLinks.value = result.data;
+  } catch (error) { if (activeVoice(voiceId, generation)) ttsError.value = error.response?.data?.detail || '移除 TTS 绑定失败。'; }
+  finally { if (activeVoice(voiceId, generation)) ttsBusy.value = false; }
 }
 
 function startInfoEdit() { infoForm.name = voice.value.name; infoForm.auditionText = voice.value.audition_text || ''; infoError.value = ''; editingInfo.value = true; }
 async function saveInfo() {
   if (!infoForm.name.trim() || infoSaving.value) return;
+  const voiceId = voice.value.id; const generation = loadGuard.current();
+  const update = { name: infoForm.name.trim(), audition_text: infoForm.auditionText };
   infoSaving.value = true; infoError.value = '';
   try {
-    voice.value = (await api.patch(`/admin/voices/${voice.value.id}`, { name: infoForm.name.trim(), audition_text: infoForm.auditionText })).data;
+    const result = await api.patch(`/admin/voices/${voiceId}`, update);
+    if (!activeVoice(voiceId, generation)) return;
+    voice.value = result.data;
     editingInfo.value = false;
-  } catch (error) { infoError.value = error.response?.data?.detail || '保存基本信息失败。'; }
-  finally { infoSaving.value = false; }
+  } catch (error) { if (activeVoice(voiceId, generation)) infoError.value = error.response?.data?.detail || '保存基本信息失败。'; }
+  finally { if (activeVoice(voiceId, generation)) infoSaving.value = false; }
 }
 
 function openAudition() {
@@ -311,28 +339,50 @@ function openAudition() {
   auditionError.value = ''; auditionOpen.value = true;
 }
 function stopAudition() {
+  auditionGuard.invalidate();
   if (auditionAudio) { auditionAudio.pause(); auditionAudio.removeAttribute('src'); auditionAudio.load(); auditionAudio = null; }
   if (auditionUrl) { URL.revokeObjectURL(auditionUrl); auditionUrl = null; }
-  auditionPlaying.value = false;
+  auditionPlaying.value = false; auditionLoading.value = false;
 }
 function closeAudition() { stopAudition(); auditionOpen.value = false; }
 async function startAudition() {
   if (!auditionConfigId.value || !auditionText.value.trim() || auditionLoading.value) return;
-  auditionLoading.value = true; auditionError.value = ''; stopAudition();
+  const voiceId = voice.value.id; const loadGeneration = loadGuard.current();
+  const payload = { text: auditionText.value.trim(), tts_config_id: auditionConfigId.value };
+  stopAudition();
+  const auditionGeneration = auditionGuard.next();
+  auditionLoading.value = true; auditionError.value = '';
   try {
-    const response = await api.post(`/admin/voices/${voice.value.id}/audition`, { text: auditionText.value.trim(), tts_config_id: auditionConfigId.value });
+    const response = await api.post(`/admin/voices/${voiceId}/audition`, payload);
+    if (!activeVoice(voiceId, loadGeneration) || !auditionGuard.isCurrent(auditionGeneration)) return;
     const bytes = Uint8Array.from(atob(response.data.audio_base64), (char) => char.charCodeAt(0));
     auditionUrl = URL.createObjectURL(new Blob([bytes], { type: response.data.mime_type }));
     auditionAudio = new Audio(auditionUrl);
-    auditionAudio.onended = stopAudition;
-    auditionAudio.onerror = () => { stopAudition(); auditionError.value = '音频播放失败。'; };
-    await auditionAudio.play(); auditionPlaying.value = true;
-  } catch (error) { stopAudition(); auditionError.value = error.response?.data?.detail || '经典 TTS 试听失败。'; }
-  finally { auditionLoading.value = false; }
+    auditionAudio.onended = () => { if (auditionGuard.isCurrent(auditionGeneration)) stopAudition(); };
+    auditionAudio.onerror = () => { if (auditionGuard.isCurrent(auditionGeneration)) { stopAudition(); auditionError.value = '音频播放失败。'; } };
+    await auditionAudio.play();
+    if (activeVoice(voiceId, loadGeneration) && auditionGuard.isCurrent(auditionGeneration)) auditionPlaying.value = true;
+  } catch (error) {
+    if (activeVoice(voiceId, loadGeneration) && auditionGuard.isCurrent(auditionGeneration)) {
+      stopAudition(); auditionError.value = error.response?.data?.detail || '经典 TTS 试听失败。';
+    }
+  } finally {
+    if (activeVoice(voiceId, loadGeneration) && auditionGuard.isCurrent(auditionGeneration)) auditionLoading.value = false;
+  }
 }
 
-watch(() => route.params.id, load, { immediate: true });
-onBeforeUnmount(stopAudition);
+watch(() => route.params.id, (id, previousId) => {
+  if (id !== previousId) {
+    closeClone(); closeAudition();
+    voice.value = null; ttsLinks.value = []; runtimeRows.value = [];
+    editingInfo.value = false; infoError.value = ''; infoSaving.value = false;
+    addTtsId.value = ''; ttsError.value = ''; ttsBusy.value = false;
+    cloneSaving.value = false; realtimeNotice.value = ''; realtimeRefreshFailed.value = false;
+    auditionLoading.value = false; auditionError.value = '';
+  }
+  load();
+}, { immediate: true });
+onBeforeUnmount(() => { loadGuard.invalidate(); closeClone(); closeAudition(); });
 </script>
 
 <style scoped>
