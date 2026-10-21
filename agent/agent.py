@@ -642,7 +642,7 @@ async def run_pipeline_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
             logger.info(f"[timing] TTS speak greeting: {t_speak - t_greet:.2f}s (total {t_speak - t0:.2f}s)")
         except Exception as e:
             logger.warning(f"Failed to generate initial greeting: {e}")
-            await session.say("你好，请问有什么可以帮助你的？", allow_interruptions=False)
+            await session.say("你好，请问有什么可以帮助你的？", allow_interruptions=allow_interruptions)
 
     _greeting_task = _track_background_task(_bg_tasks, asyncio.create_task(_speak_greeting()))
     _register_pipeline_cleanup(ctx, session, _bg_tasks)
