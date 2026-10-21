@@ -114,6 +114,13 @@ class QwenRealtimeStrategy(TtsStrategy):
                     loop.call_soon_threadsafe(q.put_nowait, None)
 
             def on_close(self, close_status_code, close_msg):
+                if (close_status_code not in (None, 1000) or close_msg) and not provider_errors:
+                    detail = "WebSocket closed"
+                    if close_status_code is not None:
+                        detail += f" (code={close_status_code})"
+                    if close_msg:
+                        detail += f": {close_msg}"
+                    provider_errors.append(detail)
                 loop.call_soon_threadsafe(q.put_nowait, None)
 
         cb = _CB()
