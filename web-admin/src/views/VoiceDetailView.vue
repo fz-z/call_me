@@ -33,7 +33,7 @@
             <button v-if="unusedRealtimeConfigs.length && !cloneForm.open && !realtimeRefreshFailed" class="btn btn-primary" @click="openNewClone">+ 复刻到其他模型</button>
           </div>
           <p class="section-help">每个实时模型配置单独复刻一次。已复刻的音色可在该配置的多个 Agent 和后续通话中重复使用，无需再次上传。</p>
-          <p class="section-help">想听端到端效果，请在 <router-link to="/agents">Agent 管理</router-link> 选择使用此音色的实时 Agent 发起通话。</p>
+          <p class="section-help">点击绑定卡片上的“试听”可生成短音频；完整对话效果仍可在 <router-link to="/agents">Agent 管理</router-link> 中发起通话测试。</p>
 
           <div v-if="realtimeRefreshFailed" class="empty-state">复刻请求已成功，但绑定列表暂时无法刷新。请先刷新列表确认结果，不要重复上传。</div>
           <div v-else-if="realtimeRows.length" class="binding-list">
@@ -43,7 +43,10 @@
                 <div class="muted">{{ binding.runtime_config_model }}</div>
                 <div class="reuse-note">✓ 已复刻，可重复使用</div>
               </div>
-              <button class="btn-ghost subtle-action" @click="openReplaceClone(binding)">重新复刻</button>
+              <div class="binding-actions">
+                <button class="btn-ghost subtle-action" @click="activeRealtimeAudition = binding">试听</button>
+                <button class="btn-ghost subtle-action" @click="openReplaceClone(binding)">重新复刻</button>
+              </div>
             </div>
           </div>
           <div v-else class="empty-state">尚未绑定实时模型。选择一个支持音色复刻的实时配置并上传参考音频即可创建。</div>
@@ -132,7 +135,7 @@
         </select>
         <label for="audition-text">试听文本</label>
         <textarea id="audition-text" v-model="auditionText" rows="4" required></textarea>
-        <p class="field-hint">端到端音色请通过使用它的 Agent 发起实时通话试听。</p>
+        <p class="field-hint">端到端音色可在左侧实时模型绑定卡片中试听。</p>
         <p v-if="auditionError" class="error">{{ auditionError }}</p>
         <div class="modal-actions">
           <button type="button" class="btn-ghost" @click="closeAudition">关闭</button>
@@ -141,6 +144,9 @@
         </div>
       </form>
     </div>
+    <RealtimeVoiceAudition v-if="activeRealtimeAudition && voice"
+      :key="activeRealtimeAudition.id" :voice-id="voice.id" :binding="activeRealtimeAudition"
+      @close="activeRealtimeAudition = null" />
   </div>
 </template>
 
@@ -148,10 +154,12 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../api.js';
+import RealtimeVoiceAudition from '../components/RealtimeVoiceAudition.vue';
 import { getRealtimeAudioDurationError } from '../utils/audioDuration.js';
 import { availableRealtimeConfigs, createGenerationGuard, getRealtimeAudioFileError, realtimeBindings, submitAndRefreshRealtimeBinding } from '../utils/voiceManagement.js';
 
 const route = useRoute();
+const activeRealtimeAudition = ref(null);
 const loading = ref(true); const notFound = ref(false); const pageError = ref('');
 const voice = ref(null); const agents = ref([]); const ttsLinks = ref([]); const runtimeRows = ref([]);
 const ttsConfigs = ref([]); const realtimeConfigs = ref([]);
@@ -373,7 +381,7 @@ async function startAudition() {
 
 watch(() => route.params.id, (id, previousId) => {
   if (id !== previousId) {
-    closeClone(); closeAudition();
+    closeClone(); closeAudition(); activeRealtimeAudition.value = null;
     voice.value = null; ttsLinks.value = []; runtimeRows.value = [];
     editingInfo.value = false; infoError.value = ''; infoSaving.value = false;
     addTtsId.value = ''; ttsError.value = ''; ttsBusy.value = false;
@@ -382,11 +390,12 @@ watch(() => route.params.id, (id, previousId) => {
   }
   load();
 }, { immediate: true });
-onBeforeUnmount(() => { loadGuard.invalidate(); closeClone(); closeAudition(); });
+onBeforeUnmount(() => { loadGuard.invalidate(); closeClone(); closeAudition(); activeRealtimeAudition.value = null; });
 </script>
 
 <style scoped>
 .voice-detail { max-width: 1160px; margin: 0 auto; }.muted,.section-help,.field-hint { color:#94a3b8; font-size:13px; line-height:1.6; }.detail-header { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; margin:5px 0 24px; }.detail-header h2 { font-size:26px; margin:4px 0 6px; }.detail-header .tag { vertical-align:middle; font-weight:400; }.eyebrow { color:#73abef; font-size:11px; letter-spacing:.08em; margin-bottom:4px; }.action-link { text-decoration:none; white-space:nowrap; }.section-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start; }.detail-card,.state-card { background:#1a1a2e; border:1px solid #30354d; border-radius:10px; padding:20px; }.state-card { margin-top:18px; }.state-card h2 { margin-bottom:8px; }.section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }.section-heading h3 { font-size:18px; }.section-help { margin:0 0 16px; }.section-help a { color:#8bbcff; }.binding-list { display:grid; gap:10px; margin:15px 0; }.binding-card { border:1px solid #374151; border-radius:8px; padding:13px; display:flex; justify-content:space-between; align-items:center; gap:12px; background:#111827; }.binding-card strong { font-size:14px; }.binding-card .muted { margin-top:4px; word-break:break-word; }.reuse-note { color:#86efac; font-size:12px; margin-top:7px; }.subtle-action { white-space:nowrap; }.empty-state { color:#94a3b8; border:1px dashed #475569; border-radius:8px; padding:20px; font-size:13px; line-height:1.6; margin:15px 0; }.action-panel { background:#111827; border:1px solid #374151; border-radius:8px; padding:16px; margin-top:16px; }.action-panel h4 { margin-bottom:12px; }.action-panel label:not(.consent),.audition-modal label { display:block; color:#cbd5e1; font-size:13px; margin:12px 0 6px; }.action-panel select,.action-panel input:not([type=checkbox]),.action-panel textarea,.audition-modal select,.audition-modal textarea { display:block; width:100%; box-sizing:border-box; padding:9px; background:#0f0f1a; color:#e0e0e0; border:1px solid #475569; border-radius:5px; }.field-hint { margin:6px 0 10px; font-size:12px; }.consent { display:block; color:#cbd5e1; font-size:13px; line-height:1.5; margin:14px 0; }.consent input { margin-right:6px; }.warning { color:#fbbf24; font-size:12px; line-height:1.6; }.classic-warning { margin:0 0 12px; }.form-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:15px; }.add-row { display:flex; gap:8px; margin-top:16px; }.add-row select { flex:1; min-width:0; padding:8px; background:#0f0f1a; color:#e0e0e0; border:1px solid #475569; border-radius:5px; }.danger { color:#f87171; }.success-note { color:#86efac; font-size:13px; margin-top:12px; }.info-card { margin-top:18px; }.info-summary { display:grid; gap:12px; }.info-summary > div { display:grid; gap:4px; }.info-summary strong { font-size:14px; font-weight:500; white-space:pre-wrap; }.audition-modal { min-width:0; width:min(480px, calc(100vw - 32px)); }.audition-modal .field-hint { margin:10px 0; }
+.binding-actions { display:flex; gap:8px; flex-wrap:wrap; }
 @media (max-width: 900px) { .section-grid { grid-template-columns:1fr; } .detail-header { flex-wrap:wrap; } }
 @media (max-width: 560px) { .detail-card { padding:15px; } .section-heading { align-items:flex-start; flex-wrap:wrap; } .binding-card { align-items:flex-start; flex-direction:column; } }
 </style>

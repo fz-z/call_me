@@ -1,3 +1,5 @@
+import asyncio
+import base64
 import uuid
 import os
 import json
@@ -8,11 +10,15 @@ from urllib.parse import urlsplit, urlunsplit
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 
 from database import _sync_conn
-from models import VoiceOut, VoiceCreate, VoiceManualCreate, VoiceUpdate, TtsConfigOut, VoiceTtsLinkRequest, AuditionRequest, AuditionResponse, VoiceRuntimeBindingOut
+from models import VoiceOut, VoiceCreate, VoiceManualCreate, VoiceUpdate, TtsConfigOut, VoiceTtsLinkRequest, AuditionRequest, AuditionResponse, RealtimeAuditionRequest, VoiceRuntimeBindingOut
 from auth import require_admin
 from voice_enrollment import enroll_voice
 from tts_strategy import get_tts_strategy
-from runtime_bindings import list_voice_bindings
+from runtime_bindings import list_voice_bindings, resolve_voice_binding
+from realtime_audition import (
+    synthesize_realtime_preview, RealtimeAuditionTooLarge,
+    RealtimeAuditionNoAudio, RealtimeAuditionRejected,
+)
 from realtime_configs import SUPPORTED_MODEL, SUPPORTED_PROVIDER
 from temporary_voice_audio import publish_voice_audio, remove_published_voice_audio
 
@@ -463,6 +469,39 @@ def unlink_voice_tts(voice_id: str, tts_id: str, admin: dict = Depends(require_a
     finally:
         db.close()
     return None
+
+
+@router.post("/{voice_id}/realtime-bindings/{realtime_config_id}/audition", response_model=AuditionResponse)
+async def audition_realtime_binding(
+    voice_id: str, realtime_config_id: str, body: RealtimeAuditionRequest,
+    admin: dict = Depends(require_admin),
+):
+    db = _sync_conn()
+    try:
+        binding = resolve_voice_binding(db, voice_id, "realtime", realtime_config_id)
+        if not binding:
+            raise HTTPException(status_code=404, detail="Realtime voice binding not found")
+        config = _get_realtime_config(db, realtime_config_id)
+        preview_args = {
+            "api_key": config["resolved_api_key"], "endpoint": config["endpoint"],
+            "model": config["model"], "voice_id": binding["provider_voice_id"],
+            "text": body.text,
+        }
+    finally:
+        db.close()
+    try:
+        wav = await synthesize_realtime_preview(**preview_args)
+    except asyncio.TimeoutError as error:
+        raise HTTPException(status_code=504, detail="实时音色试听超时，请稍后重试。") from error
+    except RealtimeAuditionTooLarge as error:
+        raise HTTPException(status_code=413, detail="试听音频过长，请缩短文案。") from error
+    except RealtimeAuditionNoAudio as error:
+        raise HTTPException(status_code=502, detail="实时模型未生成音频，请检查音色绑定或稍后重试。") from error
+    except RealtimeAuditionRejected as error:
+        raise HTTPException(status_code=502, detail="实时模型拒绝了试听请求，请检查模型配置后重试。") from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail="实时音色试听生成失败，请检查模型配置后重试。") from error
+    return AuditionResponse(audio_base64=base64.b64encode(wav).decode(), mime_type="audio/wav")
 
 
 @router.post("/{voice_id}/audition", response_model=AuditionResponse)

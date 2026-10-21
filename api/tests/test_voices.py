@@ -9,6 +9,115 @@ client = TestClient(app)
 from tests.test_auth import _admin_header, _auth_header
 
 
+class TestRealtimeAudition:
+    def _binding(self):
+        from database import _sync_conn
+        voice_id, config_id = str(uuid.uuid4()), str(uuid.uuid4())
+        now = "2026-10-21T00:00:00+00:00"
+        db = _sync_conn()
+        try:
+            db.execute("INSERT INTO voices (id,name,voice_id,type,created_at) VALUES (?,?,?,?,?)",
+                       (voice_id, "试听音色", "", "cloned", now))
+            db.execute("INSERT INTO realtime_configs "
+                       "(id,name,provider,model,api_key,endpoint,capabilities_json,created_at) "
+                       "VALUES (?,?,?,?,?,?,?,?)",
+                       (config_id, "试听模型", "qwen", "qwen-audio-3.1-realtime-plus",
+                        "test-key", "wss://example.test/api-ws/v1/realtime", '{"voice_clone":true}', now))
+            db.execute("INSERT INTO voice_runtime_bindings "
+                       "(id,voice_pool_id,runtime_kind,runtime_config_id,provider_voice_id,created_at) "
+                       "VALUES (?,?,'realtime',?,?,?)",
+                       (str(uuid.uuid4()), voice_id, config_id, "provider-preview-voice", now))
+            db.commit()
+        finally:
+            db.close()
+        return voice_id, config_id
+
+    def test_exact_binding_and_one_off_text(self, clean_db, monkeypatch):
+        import base64
+        import voices
+        voice_id, config_id = self._binding()
+        captured = {}
+
+        async def fake_preview(**kwargs):
+            captured.update(kwargs)
+            return b"RIFF-preview"
+
+        monkeypatch.setattr(voices, "synthesize_realtime_preview", fake_preview, raising=False)
+        response = client.post(
+            f"/api/admin/voices/{voice_id}/realtime-bindings/{config_id}/audition",
+            headers=_admin_header(), json={"text": " 你好 "},
+        )
+        assert response.status_code == 200, response.text
+        assert base64.b64decode(response.json()["audio_base64"]) == b"RIFF-preview"
+        assert response.json()["mime_type"] == "audio/wav"
+        assert captured["voice_id"] == "provider-preview-voice"
+        assert captured["text"] == "你好"
+        assert "provider-preview-voice" not in response.text
+        assert "test-key" not in response.text
+        from database import _sync_conn
+        db = _sync_conn()
+        try:
+            assert db.execute("SELECT COUNT(*) FROM voice_runtime_bindings WHERE voice_pool_id=?", (voice_id,)).fetchone()[0] == 1
+            assert db.execute("SELECT audition_text FROM voices WHERE id=?", (voice_id,)).fetchone()[0] is None
+        finally:
+            db.close()
+
+    @pytest.mark.parametrize("text", [" ", "a" * 121])
+    def test_rejects_invalid_text(self, clean_db, text):
+        voice_id, config_id = self._binding()
+        response = client.post(
+            f"/api/admin/voices/{voice_id}/realtime-bindings/{config_id}/audition",
+            headers=_admin_header(), json={"text": text},
+        )
+        assert response.status_code == 422
+
+    def test_requires_admin_and_exact_binding(self, clean_db):
+        voice_id, config_id = self._binding()
+        url = f"/api/admin/voices/{voice_id}/realtime-bindings/{config_id}/audition"
+        assert client.post(url, json={"text": "你好"}).status_code != 200
+        assert client.post(
+            f"/api/admin/voices/{voice_id}/realtime-bindings/{uuid.uuid4()}/audition",
+            headers=_admin_header(), json={"text": "你好"},
+        ).status_code == 404
+        from database import _sync_conn
+        db = _sync_conn()
+        try:
+            db.execute("UPDATE voice_runtime_bindings SET runtime_kind='tts' WHERE voice_pool_id=?", (voice_id,))
+            db.commit()
+        finally:
+            db.close()
+        assert client.post(url, headers=_admin_header(), json={"text": "你好"}).status_code == 404
+
+    @pytest.mark.parametrize("error_type,status,detail", [
+        ("timeout", 504, "超时"), ("too_large", 413, "过长"),
+        ("provider", 502, "拒绝"), ("no_audio", 502, "未生成音频"),
+    ])
+    def test_safe_errors(self, clean_db, monkeypatch, error_type, status, detail):
+        import asyncio
+        import voices
+        from realtime_audition import RealtimeAuditionTooLarge, RealtimeAuditionRejected, RealtimeAuditionNoAudio
+        voice_id, config_id = self._binding()
+        async def fail(**_):
+            if error_type == "timeout":
+                raise asyncio.TimeoutError("test-key provider-preview-voice")
+            if error_type == "too_large":
+                raise RealtimeAuditionTooLarge("test-key provider-preview-voice")
+            if error_type == "provider":
+                raise RealtimeAuditionRejected("test-key provider-preview-voice")
+            if error_type == "no_audio":
+                raise RealtimeAuditionNoAudio("test-key provider-preview-voice")
+            raise RuntimeError("test-key provider-preview-voice")
+        monkeypatch.setattr(voices, "synthesize_realtime_preview", fail)
+        response = client.post(
+            f"/api/admin/voices/{voice_id}/realtime-bindings/{config_id}/audition",
+            headers=_admin_header(), json={"text": "你好"},
+        )
+        assert response.status_code == status
+        assert detail in response.text
+        assert "test-key" not in response.text
+        assert "provider-preview-voice" not in response.text
+
+
 def _get_first_voice_and_tts():
     from database import _sync_conn
     conn = _sync_conn()

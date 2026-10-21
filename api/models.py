@@ -270,6 +270,18 @@ class AuditionRequest(BaseModel):
     tts_config_id: Optional[str] = None
 
 
+class RealtimeAuditionRequest(BaseModel):
+    text: str
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value or len(value) > 120:
+            raise ValueError("Audition text must be 1–120 characters")
+        return value
+
+
 class AuditionResponse(BaseModel):
     audio_base64: str
     mime_type: str
