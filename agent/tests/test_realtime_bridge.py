@@ -33,9 +33,14 @@ class FakeSource:
     def __init__(self):
         self.frames = []
         self.closed = False
+        self.clear_calls = 0
 
     async def capture_frame(self, frame):
         self.frames.append(frame)
+
+    def clear_queue(self):
+        self.clear_calls += 1
+        self.frames.clear()
 
     def close(self):
         self.closed = True
@@ -101,6 +106,39 @@ class LiveKitAudioBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([frame.data for frame in source.frames], [b"\x01\x00\x02\x00", b"\x03\x00\x04\x00"])
         self.assertTrue(all(frame.sample_rate == 24000 for frame in source.frames))
         self.assertTrue(all(frame.num_channels == 1 for frame in source.frames))
+
+    async def test_clear_output_removes_queued_frames_and_accepts_new_audio(self):
+        source = FakeSource()
+        bridge = LiveKitAudioBridge(
+            room=FakeRoom(), on_input=lambda pcm: None,
+            audio_source_factory=lambda sample_rate, num_channels: source,
+            local_track_factory=lambda name, output_source: object(),
+            audio_frame_factory=lambda data, sample_rate, num_channels: FakeFrame(data, sample_rate, num_channels),
+        )
+
+        await bridge.publish_pcm(b"\x01\x00")
+        self.assertTrue(await bridge.clear_output())
+        self.assertEqual(source.frames, [])
+        self.assertEqual(source.clear_calls, 1)
+        await bridge.publish_pcm(b"\x02\x00")
+        self.assertEqual([frame.data for frame in source.frames], [b"\x02\x00"])
+
+    async def test_clear_output_before_track_or_without_queue_support_is_safe(self):
+        source = FakeSource()
+        source.clear_queue = None
+        bridge = LiveKitAudioBridge(
+            room=FakeRoom(), on_input=lambda pcm: None,
+            audio_source_factory=lambda sample_rate, num_channels: source,
+            local_track_factory=lambda name, output_source: object(),
+            audio_frame_factory=lambda data, sample_rate, num_channels: FakeFrame(data, sample_rate, num_channels),
+        )
+
+        self.assertFalse(await bridge.clear_output())
+        await bridge.publish_pcm(b"\x01\x00")
+        with self.assertLogs("realtime.bridge", level="WARNING"):
+            self.assertFalse(await bridge.clear_output())
+        await bridge.publish_pcm(b"\x02\x00")
+        self.assertEqual([frame.data for frame in source.frames], [b"\x01\x00", b"\x02\x00"])
 
     async def test_close_is_idempotent_and_cleans_up_the_stream_and_source(self):
         stream = FakeStream([])

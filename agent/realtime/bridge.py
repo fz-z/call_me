@@ -179,6 +179,22 @@ class LiveKitAudioBridge:
             frame = self._create_frame(data)
             await _maybe_await(self._source.capture_frame(frame))
 
+    async def clear_output(self) -> bool:
+        """Discard queued provider audio without tearing down the published track."""
+        async with self._output_lock:
+            if self._source is None:
+                return False
+            clear_queue = getattr(self._source, "clear_queue", None)
+            if not callable(clear_queue):
+                logger.warning("Realtime audio source does not support queue clearing")
+                return False
+            try:
+                await _maybe_await(clear_queue())
+            except Exception:
+                logger.warning("Failed to clear realtime audio output queue")
+                return False
+            return True
+
     async def _close_resource(self, resource: Any | None) -> None:
         if resource is None:
             return
