@@ -111,8 +111,9 @@ flutter build web --base-href /app/
 ### 通电话没有声音？
 
 - 检查 Agent 日志：`docker logs call_me-agent-1 --tail 50`
-- VC 声音（克隆的）必须用 VC TTS 模型 `qwen3-tts-vc-realtime-2026-01-15`
-- Flash 模型只能用内置声音
+- 克隆音色必须在“声音库”针对当前经典 TTS 模型重新复刻；提供商音色 ID 与模型绑定，不能跨模型复用
+- 旧模型 `qwen3-tts-vc-realtime-2026-01-15` 已被服务商下线，请使用 `qwen-audio-3.1-tts-flash`
+- Qwen Audio TTS 需要配置 `DASHSCOPE_WORKSPACE` 或 `QWEN_AUDIO_TTS_API_URL`，且与 API Key 属于同一区域
 - 去 Web Admin → Agent 详情 → Pipeline 配置确认 TTS 模型和音色匹配
 
 ### Docker 部署后 Flutter App 连不上？

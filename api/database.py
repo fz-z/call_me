@@ -179,7 +179,14 @@ def init_db():
                 if not existing:
                     tid = str(uuid.uuid4())
                     now = datetime.now(timezone.utc).isoformat()
-                    supports_clone = 1 if "VC" in name or "vc" in model else 0
+                    normalized_model = model.lower()
+                    is_qwen_audio_tts = (
+                        normalized_model.startswith("qwen-audio-")
+                        and "-tts-" in normalized_model
+                    )
+                    supports_clone = (
+                        1 if "VC" in name or "vc" in model or is_qwen_audio_tts else 0
+                    )
                     conn.execute(
                         "INSERT INTO tts_configs (id, name, provider, model, api_key, supports_voice_clone, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                         (tid, name, provider, model, dashscope_key, supports_clone, now),

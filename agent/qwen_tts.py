@@ -20,6 +20,40 @@ from livekit.agents.utils import shortuuid
 
 logger = logging.getLogger("qwen_tts")
 
+LEGACY_QWEN_TTS_API_URL = (
+    "https://dashscope.aliyuncs.com/api/v1/services/aigc/"
+    "multimodal-generation/generation"
+)
+QWEN_AUDIO_TTS_MAX_BYTES = 20 * 1024 * 1024
+
+
+def is_qwen_audio_tts_model(model: str | None) -> bool:
+    value = (model or "").lower()
+    return value.startswith("qwen-audio-") and "-tts-" in value
+
+
+def resolve_qwen_tts_api_url(model: str) -> str:
+    """Resolve the endpoint for a Qwen TTS model family.
+
+    Qwen Audio TTS models use the workspace-scoped SpeechSynthesizer REST
+    endpoint. Legacy/realtime models keep the existing HTTP/WS endpoints.
+    """
+    if is_qwen_audio_tts_model(model):
+        override = os.environ.get("QWEN_AUDIO_TTS_API_URL", "").strip()
+        if override:
+            return override.rstrip("/")
+        workspace = os.environ.get("DASHSCOPE_WORKSPACE", "").strip()
+        if not workspace:
+            raise RuntimeError(
+                "QWEN_AUDIO_TTS_API_URL or DASHSCOPE_WORKSPACE is required "
+                "for Qwen Audio TTS"
+            )
+        return (
+            f"https://{workspace}.cn-beijing.maas.aliyuncs.com/"
+            "api/v1/services/audio/tts/SpeechSynthesizer"
+        )
+    return os.environ.get("QWEN_TTS_API_URL", "").strip() or LEGACY_QWEN_TTS_API_URL
+
 
 async def _iter_flushed_text_segments(input_ch, flush_sentinel_type):
     buf = ""
@@ -89,13 +123,9 @@ class QwenTTS(TTS):
         if not api_key:
             raise RuntimeError("缺少环境变量 DASHSCOPE_API_KEY（通义 DashScope API Key）")
 
-        # Qwen-TTS HTTP API（中国站默认）
-        api_url = os.environ.get("QWEN_TTS_API_URL", "").strip() or (
-            "https://dashscope.aliyuncs.com/api/v1/services/aigc/"
-            "multimodal-generation/generation"
-        )
-
         model = "qwen3-tts-flash-realtime"
+        # Qwen-TTS HTTP API（中国站默认）；Qwen Audio TTS 走工作区端点。
+        api_url = resolve_qwen_tts_api_url(model)
         # 复刻音色（voice_id）优先：如果设置了 QWEN_TTS_VOICE_ID，则会覆盖 QWEN_TTS_VOICE
         voice_id = os.environ.get("QWEN_TTS_VOICE_ID", "").strip() or None
         voice = "Cherry"
@@ -172,9 +202,22 @@ class QwenTTS(TTS):
         }
 
     def _build_body(self, *, text: str) -> dict[str, Any]:
+        if is_qwen_audio_tts_model(self._model):
+            # Workspace-scoped SpeechSynthesizer REST contract.
+            body: dict[str, Any] = {
+                "model": self._model,
+                "input": {
+                    "text": text,
+                    "voice": self._voice_id or self._voice,
+                    "format": self._audio_format,
+                    "sample_rate": self.sample_rate,
+                },
+            }
+            return _deep_merge(body, self._extra_body)
+
         # 按官方文档：/services/aigc/multimodal-generation/generation
         # 不同文档版本可能略有差异，所以这里把关键字段放在最常见的位置，同时支持 extra_body 覆盖。
-        body: dict[str, Any] = {
+        body = {
             "model": self._model,
             "input": {
                 "text": text,
@@ -240,6 +283,17 @@ class _QwenSynthesizeStream(SynthesizeStream):
                 output_emitter.flush()
 
 
+def _qwen_provider_error(payload: dict[str, Any], fallback: str) -> str:
+    code = payload.get("code")
+    message = payload.get("message")
+    request_id = payload.get("request_id")
+    parts = [str(part) for part in (code, message) if part]
+    detail = ": ".join(parts) or fallback
+    if request_id:
+        detail += f" (request_id={request_id})"
+    return detail
+
+
 async def _call_qwen_tts(*, tts: QwenTTS, text: str) -> bytes:
     session = await tts._get_session()
     headers = tts._build_headers()
@@ -251,9 +305,16 @@ async def _call_qwen_tts(*, tts: QwenTTS, text: str) -> bytes:
     async with session.post(tts._api_url, json=body, headers=headers, timeout=timeout) as r:
         raw = await r.read()
         if r.status >= 400:
-            # 尽量把返回内容带出来，方便排查
+            # 尽量把返回内容带出来，方便排查；绝不回显 API Key。
             snippet = raw[:1000].decode("utf-8", errors="replace")
-            raise RuntimeError(f"Qwen-TTS HTTP {r.status}: {snippet}")
+            error = f"Qwen-TTS HTTP {r.status}: {snippet}"
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except Exception:
+                payload = None
+            if isinstance(payload, dict) and (payload.get("code") or payload.get("message")):
+                error = _qwen_provider_error(payload, f"Qwen-TTS HTTP {r.status}")
+            raise RuntimeError(_redact_secret(error, tts._api_key))
 
         # 有些实现会直接返回音频（少见），优先按 content-type 判断
         ctype = (r.headers.get("Content-Type") or "").lower()
@@ -266,6 +327,14 @@ async def _call_qwen_tts(*, tts: QwenTTS, text: str) -> bytes:
         except Exception:
             snippet = raw[:200].decode("utf-8", errors="replace")
             raise RuntimeError(f"Qwen-TTS 返回非 JSON 且非音频: {snippet}")
+
+        if isinstance(obj, dict) and (obj.get("code") or obj.get("message")):
+            raise RuntimeError(
+                _redact_secret(
+                    _qwen_provider_error(obj, "Qwen-TTS provider error"),
+                    tts._api_key,
+                )
+            )
 
         audio_b64 = _extract_audio_b64(obj)
         if not audio_b64:
@@ -493,12 +562,46 @@ def _extract_audio_url(obj: Any) -> str | None:
     return None
 
 
+def _redact_secret(text: str, secret: str) -> str:
+    if secret and text:
+        return text.replace(secret, "[redacted]")
+    return text
+
+
+def _looks_like_audio(raw: bytes) -> bool:
+    if raw.startswith((b"RIFF", b"ID3", b"OggS", b"fLaC")):
+        return True
+    return len(raw) >= 2 and raw[0] == 0xFF and (raw[1] & 0xE0) == 0xE0
+
+
 async def _download_audio(*, session: aiohttp.ClientSession, url: str) -> bytes:
-    async with session.get(url) as r:
-        data = await r.read()
+    timeout = aiohttp.ClientTimeout(total=60)
+    async with session.get(url, timeout=timeout) as r:
+        content_type = (r.headers.get("Content-Type") or "").split(";", 1)[0].lower()
+        is_audio_type = content_type.startswith("audio/")
+        is_generic_type = content_type in ("", "application/octet-stream")
         if r.status >= 400:
+            data = await r.read()
             snippet = data[:500].decode("utf-8", errors="replace")
             raise RuntimeError(f"下载 Qwen-TTS 音频失败 HTTP {r.status}: {snippet}")
+        if not (is_audio_type or is_generic_type):
+            raise RuntimeError(
+                "下载 Qwen-TTS 音频失败：non-audio content "
+                f"{content_type or 'unknown'}"
+            )
+        content_length = getattr(r, "content_length", None)
+        if content_length is not None and content_length > QWEN_AUDIO_TTS_MAX_BYTES:
+            raise RuntimeError("下载 Qwen-TTS 音频失败：audio download too large")
+        data = await r.content.read(QWEN_AUDIO_TTS_MAX_BYTES + 1)
+        if len(data) > QWEN_AUDIO_TTS_MAX_BYTES:
+            raise RuntimeError("下载 Qwen-TTS 音频失败：audio download too large")
+        if not data:
+            raise RuntimeError("下载 Qwen-TTS 音频失败：empty audio")
+        if not is_audio_type and not _looks_like_audio(data):
+            raise RuntimeError(
+                "下载 Qwen-TTS 音频失败：non-audio content "
+                f"{content_type or 'unknown'}"
+            )
         return data
 
 

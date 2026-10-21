@@ -75,7 +75,7 @@ cd app && flutter run -d chrome  # 启动 Flutter App
 - 实时语音通话（WebRTC via LiveKit Server）
 - 接通后 Agent 主动打招呼（LLM 生成开场白）
 - 多 Agent 选择（不同声音 + 不同人设）
-- 流式 TTS（DashScope WebSocket，低延迟）
+- TTS（Qwen Audio 工作区 HTTP；Realtime 模型走 DashScope WebSocket）
 - **Agent 主动挂断**：LLM 工具调用识别告别意图，友好告别后挂机
 - **静音超时**：用户 30 秒不说话 → Agent 询问"你还在吗" → 无回应挂断
 - **对话记录**：通话结束后自动保存文字对话，管理后台可展开查看

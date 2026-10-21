@@ -1,14 +1,14 @@
-# Qwen Audio 3.0 TTS Flash Migration Design
+# Qwen Audio 3.1 TTS Flash Migration Design
 
 ## Goal
 
-Replace the classic Qwen TTS runtime with `qwen-audio-3.0-tts-flash`, restore admin audition, and recreate the existing LS and NN cloned voices for the new model without losing the old provider voice IDs before the migration succeeds.
+Replace the classic Qwen TTS runtime with `qwen-audio-3.1-tts-flash`, restore admin audition, and recreate the existing LS and NN cloned voices for the new model without losing the old provider voice IDs before the migration succeeds.
 
 ## Current State
 
-- The production `tts_configs.model` value is already `qwen-audio-3.0-tts-flash`.
-- The configuration display name is still `qwen3-tts-vc-realtime`; this is cosmetic and may be updated to match the model.
-- LS and NN still reference legacy `qwen-tts-vc-*` voice IDs.
+- The production `tts_configs.model` is still `qwen3-tts-vc-realtime-2026-01-15`; the provider has retired it and returns `Model not exist`.
+- The configuration display name is still `qwen3-tts-vc-realtime`.
+- LS and NN reference legacy `qwen-tts-vc-*` voice IDs. Those IDs are model-specific; querying them returns `ResourceNotExist`, so they cannot be reused with any current model.
 - The generic Qwen HTTP strategy calls the multimodal generation endpoint with the legacy request shape.
 - The new model requires the workspace-scoped `SpeechSynthesizer` endpoint and returns a temporary audio URL for non-streaming synthesis.
 
@@ -22,7 +22,7 @@ The dedicated strategy will:
 
 1. Resolve the API key through the existing `resolved_key` fallback.
 2. Resolve the HTTP endpoint from `QWEN_AUDIO_TTS_API_URL` when set, otherwise assemble the Beijing workspace-scoped endpoint from `DASHSCOPE_WORKSPACE`. Deployment will set both values explicitly from the existing production workspace endpoint rather than guessing a workspace ID.
-3. POST to `/api/v1/services/audio/tts/SpeechSynthesizer` with `model`, `text`, `voice`, `format=wav`, and `sample_rate=24000`.
+3. POST to `/api/v1/services/audio/tts/SpeechSynthesizer` with `model` and `input: {text, voice, format: "wav", sample_rate: 24000}`. The provider rejects flat top-level `text`/`voice` fields with `Please ensure input text is valid`.
 4. Accept inline audio data when present, or download the provider's temporary audio URL with the same bounded timeout.
 5. Return WAV bytes as base64 to the existing audition API.
 6. Surface the provider request ID, error code, and message while redacting credentials.
@@ -31,7 +31,7 @@ Missing workspace configuration will produce a clear configuration error instead
 
 ### Voice recreation and migration
 
-Use the original recording for each voice to create new voices with `target_model=qwen-audio-3.0-tts-flash`. A newly returned voice ID must begin with the new model family and must pass a short synthesis check before it replaces any database binding. The local machine currently has one candidate recording, `/Users/zhangfuzhen/Desktop/Audio 2026-01-30 16.56.54.m4a`; it will not be assigned to LS or NN until its identity is confirmed. A voice without a confirmed source recording remains unchanged.
+Use the original recording for each voice to create new voices with `target_model=qwen-audio-3.1-tts-flash`. A newly returned voice ID must begin with the new model family and must pass a short synthesis check before it replaces any database binding. The local machine currently has one candidate recording, `/Users/zhangfuzhen/Desktop/Audio 2026-01-30 16.56.54.m4a`; it will not be assigned to LS or NN until its identity is confirmed. A voice without a confirmed source recording remains unchanged.
 
 For each voice:
 
@@ -44,7 +44,7 @@ The realtime binding is not rewritten because it belongs to a separate realtime 
 
 ### Configuration naming
 
-After the functional migration succeeds, rename the TTS configuration display name to `qwen-audio-3.0-tts-flash` so the admin UI no longer shows the old model family. The model ID remains the source of runtime strategy selection.
+After the functional migration succeeds, rename the TTS configuration display name to `qwen-audio-3.1-tts-flash` so the admin UI no longer shows the old model family. The model ID remains the source of runtime strategy selection.
 
 ### Error handling
 
@@ -57,7 +57,7 @@ After the functional migration succeeds, rename the TTS configuration display na
 
 Automated tests will be written before implementation and cover:
 
-- strategy selection for `qwen-audio-3.0-tts-flash`;
+- strategy selection for `qwen-audio-3.1-tts-flash`;
 - correct workspace endpoint and request body;
 - temporary audio URL download and base64 response;
 - inline audio fallback;

@@ -1,8 +1,8 @@
-# Qwen Audio 3.0 TTS Flash Migration Implementation Plan
+# Qwen Audio 3.1 TTS Flash Migration Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make `qwen-audio-3.0-tts-flash` work for admin audition and pipeline Agent speech, then migrate confirmed source recordings to model-compatible cloned voice IDs without risking the existing bindings.
+**Goal:** Make `qwen-audio-3.1-tts-flash` work for admin audition and pipeline Agent speech, then migrate confirmed source recordings to model-compatible cloned voice IDs without risking the existing bindings.
 
 **Architecture:** Add one focused HTTP protocol adapter in the API and mirror the same request contract in the Agent's existing Qwen TTS class. Both paths use the workspace-scoped `SpeechSynthesizer` endpoint, accept inline audio or a temporary audio URL, and surface provider errors. Deployment config supplies the exact workspace endpoint; voice bindings change only after cloning and a successful synthesis probe.
 
@@ -60,7 +60,7 @@ from tts_strategy import QwenAudioHttpStrategy, get_tts_strategy
 
 
 def test_qwen_audio_model_selects_dedicated_http_strategy():
-    assert isinstance(get_tts_strategy("qwen-audio-3.0-tts-flash"), QwenAudioHttpStrategy)
+    assert isinstance(get_tts_strategy("qwen-audio-3.1-tts-flash"), QwenAudioHttpStrategy)
 
 
 def test_qwen_audio_endpoint_requires_workspace(monkeypatch):
@@ -154,8 +154,8 @@ async def test_qwen_audio_synthesizes_from_provider_audio_url(monkeypatch):
     try:
         monkeypatch.setenv("QWEN_AUDIO_TTS_API_URL", str(server.make_url("/synthesize")))
         encoded, mime = await QwenAudioHttpStrategy().synthesize(
-            {"model": "qwen-audio-3.0-tts-flash", "resolved_key": "secret", "api_key": ""},
-            "qwen-audio-3.0-tts-flash-ls-1234",
+            {"model": "qwen-audio-3.1-tts-flash", "resolved_key": "secret", "api_key": ""},
+            "qwen-audio-3.1-tts-flash-ls-1234",
             "你好",
         )
     finally:
@@ -165,10 +165,10 @@ async def test_qwen_audio_synthesizes_from_provider_audio_url(monkeypatch):
     assert mime == "audio/wav"
     assert seen["authorization"] == "Bearer secret"
     assert seen["body"] == {
-        "model": "qwen-audio-3.0-tts-flash",
+        "model": "qwen-audio-3.1-tts-flash",
         "input": {
             "text": "你好",
-            "voice": "qwen-audio-3.0-tts-flash-ls-1234",
+            "voice": "qwen-audio-3.1-tts-flash-ls-1234",
             "format": "wav",
             "sample_rate": 24000,
         },
@@ -240,7 +240,7 @@ async def test_qwen_audio_surfaces_provider_error(monkeypatch):
         monkeypatch.setenv("QWEN_AUDIO_TTS_API_URL", str(server.make_url("/synthesize")))
         with pytest.raises(RuntimeError, match="InvalidParameter.*bad voice.*req-bad"):
             await QwenAudioHttpStrategy().synthesize(
-                {"model": "qwen-audio-3.0-tts-flash", "resolved_key": "secret", "api_key": ""},
+                {"model": "qwen-audio-3.1-tts-flash", "resolved_key": "secret", "api_key": ""},
                 "bad-voice",
                 "你好",
             )
@@ -276,7 +276,7 @@ async def test_qwen_audio_rejects_invalid_download(
         monkeypatch.setenv("QWEN_AUDIO_TTS_API_URL", str(server.make_url("/synthesize")))
         with pytest.raises(RuntimeError, match=expected):
             await QwenAudioHttpStrategy().synthesize(
-                {"model": "qwen-audio-3.0-tts-flash", "resolved_key": "secret", "api_key": ""},
+                {"model": "qwen-audio-3.1-tts-flash", "resolved_key": "secret", "api_key": ""},
                 "voice",
                 "你好",
             )
@@ -297,7 +297,7 @@ async def test_qwen_audio_rejects_missing_audio_url(monkeypatch):
         monkeypatch.setenv("QWEN_AUDIO_TTS_API_URL", str(server.make_url("/synthesize")))
         with pytest.raises(RuntimeError, match="missing audio URL.*req-empty"):
             await QwenAudioHttpStrategy().synthesize(
-                {"model": "qwen-audio-3.0-tts-flash", "resolved_key": "secret", "api_key": ""},
+                {"model": "qwen-audio-3.1-tts-flash", "resolved_key": "secret", "api_key": ""},
                 "voice",
                 "你好",
             )
@@ -336,14 +336,14 @@ def test_qwen_audio_build_body_uses_speech_synthesizer_contract(self):
     tts = QwenTTS(
         api_url="https://workspace.example/synthesize",
         api_key="secret",
-        model="qwen-audio-3.0-tts-flash",
-        voice_id="qwen-audio-3.0-tts-flash-ls-1234",
+        model="qwen-audio-3.1-tts-flash",
+        voice_id="qwen-audio-3.1-tts-flash-ls-1234",
     )
     self.assertEqual(tts._build_body(text="你好"), {
-        "model": "qwen-audio-3.0-tts-flash",
+        "model": "qwen-audio-3.1-tts-flash",
         "input": {
             "text": "你好",
-            "voice": "qwen-audio-3.0-tts-flash-ls-1234",
+            "voice": "qwen-audio-3.1-tts-flash-ls-1234",
             "format": "wav",
             "sample_rate": 24000,
         },
@@ -445,8 +445,8 @@ class QwenTTSHttpTests(unittest.IsolatedAsyncioTestCase):
         self.tts = QwenTTS(
             api_url=str(server.make_url("/synthesize")),
             api_key="secret",
-            model="qwen-audio-3.0-tts-flash",
-            voice_id="qwen-audio-3.0-tts-flash-ls-1234",
+            model="qwen-audio-3.1-tts-flash",
+            voice_id="qwen-audio-3.1-tts-flash-ls-1234",
         )
 
         self.assertEqual(await _call_qwen_tts(tts=self.tts, text="你好"), b"RIFFagent")
@@ -467,7 +467,7 @@ class QwenTTSHttpTests(unittest.IsolatedAsyncioTestCase):
         self.tts = QwenTTS(
             api_url=str(server.make_url("/synthesize")),
             api_key="secret",
-            model="qwen-audio-3.0-tts-flash",
+            model="qwen-audio-3.1-tts-flash",
             voice_id="bad-voice",
         )
 
@@ -602,10 +602,10 @@ Obtain an explicit LS or NN mapping from the user. Do not infer identity from th
 
 - [ ] **Step 2: Create the new provider voice through the admin upload endpoint**
 
-Upload the confirmed recording with target model `qwen-audio-3.0-tts-flash`. Expected voice ID prefix:
+Upload the confirmed recording with target model `qwen-audio-3.1-tts-flash`. Expected voice ID prefix:
 
 ```text
-qwen-audio-3.0-tts-flash-
+qwen-audio-3.1-tts-flash-
 ```
 
 - [ ] **Step 3: Validate synthesis before replacing the binding**
@@ -622,7 +622,7 @@ If no recording is available for the other voice, leave it unchanged and report 
 
 - [ ] **Step 6: Rename the TTS configuration display name**
 
-After at least one migrated voice passes audition, update the TTS configuration name from `qwen3-tts-vc-realtime` to `qwen-audio-3.0-tts-flash`.
+After at least one migrated voice passes audition, update the TTS configuration name from `qwen3-tts-vc-realtime` to `qwen-audio-3.1-tts-flash`.
 
 - [ ] **Step 7: Complete production verification**
 

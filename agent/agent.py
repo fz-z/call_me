@@ -22,7 +22,7 @@ from livekit.plugins import noise_cancellation, openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from qwen_asr_realtime_stt import QwenASRRealtimeSTT
-from qwen_tts import QwenTTS
+from qwen_tts import QwenTTS, resolve_qwen_tts_api_url
 from realtime.base import RealtimeEvent, RealtimeRuntimeConfig, RealtimeRuntimeError
 from realtime.bridge import LiveKitAudioBridge
 from realtime.factory import create_realtime_provider
@@ -480,7 +480,7 @@ async def run_pipeline_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
         tc_provider = tc["provider"]
         if tc_provider == "qwen":
             tts = QwenTTS(
-                api_url=os.getenv("QWEN_TTS_API_URL", "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"),
+                api_url=resolve_qwen_tts_api_url(tc["model"]),
                 api_key=tc["api_key"],
                 model=tc["model"],
                 voice_id=voice_id,
@@ -491,7 +491,7 @@ async def run_pipeline_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
 
     if not tts_configured:
         tts = QwenTTS(
-            api_url=os.getenv("QWEN_TTS_API_URL", "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"),
+            api_url=resolve_qwen_tts_api_url("qwen3-tts-flash-realtime"),
             api_key=os.getenv("DASHSCOPE_API_KEY", ""),
             model="qwen3-tts-flash-realtime",
             voice_id=voice_id,

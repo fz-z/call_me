@@ -41,6 +41,29 @@ class TestDatabaseInit:
         assert count == 1
         conn.close()
 
+    def test_seeds_qwen_audio_tts_as_cloneable(self, clean_db, monkeypatch):
+        conn = _sync_conn()
+        try:
+            conn.execute("DELETE FROM voice_tts_links")
+            conn.execute("DELETE FROM tts_configs")
+            conn.commit()
+        finally:
+            conn.close()
+
+        monkeypatch.setenv("SEED_TTS_FLASH_MODEL", "qwen-audio-3.1-tts-flash")
+        init_db()
+
+        conn = _sync_conn()
+        try:
+            config = conn.execute(
+                "SELECT model, supports_voice_clone FROM tts_configs WHERE model = ?",
+                ("qwen-audio-3.1-tts-flash",),
+            ).fetchone()
+            assert config is not None
+            assert config["supports_voice_clone"] == 1
+        finally:
+            conn.close()
+
     def test_realtime_schema_migrations_are_idempotent(self, clean_db):
         """Realtime schema additions survive repeated startup migrations."""
         init_db()

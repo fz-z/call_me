@@ -54,6 +54,75 @@ class QwenHttpStrategy(TtsStrategy):
                 raise RuntimeError("No audio data in TTS response")
 
 
+class QwenAudioHttpStrategy(TtsStrategy):
+    """Qwen Audio TTS via the workspace-scoped SpeechSynthesizer API."""
+
+    MAX_AUDIO_BYTES = 20 * 1024 * 1024
+
+    def _api_url(self) -> str:
+        override = os.environ.get("QWEN_AUDIO_TTS_API_URL", "").strip()
+        if override:
+            return override.rstrip("/")
+        workspace = os.environ.get("DASHSCOPE_WORKSPACE", "").strip()
+        if not workspace:
+            raise RuntimeError(
+                "DASHSCOPE_WORKSPACE is required for Qwen Audio TTS"
+            )
+        return (
+            f"https://{workspace}.cn-beijing.maas.aliyuncs.com/"
+            "api/v1/services/audio/tts/SpeechSynthesizer"
+        )
+
+    async def synthesize(self, tts_row, voice_id: str, text: str) -> tuple[str, str]:
+        api_key = tts_row["resolved_key"] or tts_row["api_key"]
+        try:
+            return await self._synthesize(tts_row, voice_id, text, api_key)
+        except RuntimeError as error:
+            raise RuntimeError(_redact_secret(str(error), api_key)) from error
+
+    async def _synthesize(
+        self, tts_row, voice_id: str, text: str, api_key: str
+    ) -> tuple[str, str]:
+        body = {
+            "model": tts_row["model"],
+            "input": {
+                "text": text,
+                "voice": voice_id,
+                "format": "wav",
+                "sample_rate": 24000,
+            },
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        timeout = aiohttp.ClientTimeout(total=60)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(self._api_url(), json=body, headers=headers) as response:
+                payload = await _read_qwen_json(response)
+
+            output = payload.get("output") if isinstance(payload, dict) else None
+            audio = output.get("audio") if isinstance(output, dict) else None
+            if not isinstance(audio, dict):
+                raise RuntimeError(_qwen_error_detail(payload, "missing audio response"))
+
+            inline_data = audio.get("data")
+            if isinstance(inline_data, str) and inline_data:
+                return inline_data, "audio/wav"
+
+            audio_url = audio.get("url")
+            if not isinstance(audio_url, str) or not audio_url.startswith(("http://", "https://")):
+                raise RuntimeError(_qwen_error_detail(payload, "missing audio URL"))
+
+            async with session.get(audio_url) as download:
+                raw, mime_type = await _read_bounded_audio(
+                    download, self.MAX_AUDIO_BYTES
+                )
+
+        return base64.b64encode(raw).decode("utf-8"), mime_type
+
+
 class QwenRealtimeStrategy(TtsStrategy):
     """qwen TTS models with realtime (WebSocket via dashscope SDK)."""
 
@@ -233,6 +302,8 @@ class CosyVoiceStrategy(TtsStrategy):
 def get_tts_strategy(model: str) -> TtsStrategy:
     """Select strategy by model name."""
     m = (model or "").lower()
+    if m.startswith("qwen-audio-") and "-tts-" in m:
+        return QwenAudioHttpStrategy()
     if m.startswith("cosyvoice"):
         return CosyVoiceStrategy()
     if m.startswith("volcengine") or m.startswith("seed-icl") or m.startswith("bytedance"):
@@ -240,6 +311,85 @@ def get_tts_strategy(model: str) -> TtsStrategy:
     if "realtime" in m:
         return QwenRealtimeStrategy()
     return QwenHttpStrategy()
+
+
+def _redact_secret(text: str, secret: str) -> str:
+    if secret and text:
+        return text.replace(secret, "[redacted]")
+    return text
+
+
+def _looks_like_audio(raw: bytes) -> bool:
+    if raw.startswith((b"RIFF", b"ID3", b"OggS", b"fLaC")):
+        return True
+    # MPEG audio frame sync (MP3/AAC ADTS share the 0xFFE mask family).
+    return len(raw) >= 2 and raw[0] == 0xFF and (raw[1] & 0xE0) == 0xE0
+
+
+def _qwen_error_detail(payload: object, fallback: str) -> str:
+    if not isinstance(payload, dict):
+        return fallback
+    code = payload.get("code")
+    message = payload.get("message")
+    request_id = payload.get("request_id")
+    parts = [str(part) for part in (code, message) if part]
+    detail = ": ".join(parts) or fallback
+    if request_id:
+        detail += f" (request_id={request_id})"
+    return detail
+
+
+async def _read_qwen_json(response) -> dict:
+    raw = await response.read()
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RuntimeError(
+            f"Qwen Audio TTS returned invalid JSON (HTTP {response.status})"
+        ) from error
+    if not isinstance(payload, dict):
+        raise RuntimeError("Qwen Audio TTS returned an invalid response object")
+    if response.status >= 400 or payload.get("code"):
+        raise RuntimeError(
+            _qwen_error_detail(payload, f"Qwen Audio TTS HTTP {response.status}")
+        )
+    return payload
+
+
+async def _read_bounded_audio(response, max_bytes: int) -> tuple[bytes, str]:
+    if response.status >= 400:
+        raw = await response.read()
+        snippet = raw[:500].decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"Qwen Audio TTS audio download failed HTTP {response.status}: {snippet}"
+        )
+
+    content_type = (response.headers.get("Content-Type") or "").split(";", 1)[0].lower()
+    is_audio_type = content_type.startswith("audio/")
+    is_generic_type = content_type in ("", "application/octet-stream")
+    if not (is_audio_type or is_generic_type):
+        raise RuntimeError(
+            f"Qwen Audio TTS audio download returned non-audio content: {content_type or 'unknown'}"
+        )
+
+    content_length = getattr(response, "content_length", None)
+    if content_length is not None and content_length > max_bytes:
+        raise RuntimeError("Qwen Audio TTS audio download is too large")
+
+    content = getattr(response, "content", None)
+    if content is not None:
+        raw = await content.read(max_bytes + 1)
+    else:
+        raw = await response.read()
+    if len(raw) > max_bytes:
+        raise RuntimeError("Qwen Audio TTS audio download is too large")
+    if not raw:
+        raise RuntimeError("Qwen Audio TTS audio download is empty")
+    if not is_audio_type and not _looks_like_audio(raw):
+        raise RuntimeError(
+            f"Qwen Audio TTS audio download returned non-audio content: {content_type or 'unknown'}"
+        )
+    return raw, content_type if is_audio_type else "audio/wav"
 
 
 def _parse_volcengine_sse(text: str) -> str | None:
