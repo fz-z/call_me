@@ -6,11 +6,14 @@ import asyncio
 import base64
 import inspect
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .base import RealtimeEvent, RealtimeRuntimeConfig, RealtimeRuntimeError
+
+logger = logging.getLogger("realtime.qwen")
 
 
 TranscriptHandler = Callable[[RealtimeEvent], Awaitable[None] | None]
@@ -68,6 +71,7 @@ class QwenRealtimeAdapter:
         self._closed = False
         self._connection_ready = asyncio.Event()
         self._close_lock = asyncio.Lock()
+        self._logged_audio = False
 
     async def run(self, config: RealtimeRuntimeConfig, bridge: Any) -> None:
         if self._started:
@@ -193,6 +197,9 @@ class QwenRealtimeAdapter:
         if event_type == "error":
             raise RealtimeRuntimeError("Qwen realtime provider reported an error")
         if event_type == "response.audio.delta":
+            if not self._logged_audio:
+                self._logged_audio = True
+                logger.info("Qwen realtime audio delta received")
             encoded_audio = payload.get("delta")
             if not isinstance(encoded_audio, str):
                 raise RealtimeRuntimeError("Invalid audio message from Qwen realtime provider")

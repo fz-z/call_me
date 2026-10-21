@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import struct
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .base import RealtimeRuntimeError
+
+logger = logging.getLogger("realtime.bridge")
 
 
 INPUT_SAMPLE_RATE = 16_000
@@ -161,7 +164,18 @@ class LiveKitAudioBridge:
             if self._source is None:
                 self._source = self._create_source()
                 self._output_track = self._create_track(self._source)
-                self._publication = await self._room.local_participant.publish_track(self._output_track)
+                logger.info("Publishing realtime audio track")
+                try:
+                    self._publication = await asyncio.wait_for(
+                        self._room.local_participant.publish_track(self._output_track),
+                        timeout=10,
+                    )
+                except asyncio.TimeoutError as exc:
+                    logger.error("Timed out publishing realtime audio track")
+                    raise RealtimeRuntimeError(
+                        "Timed out publishing realtime audio track"
+                    ) from exc
+                logger.info("Realtime audio track published")
             frame = self._create_frame(data)
             await _maybe_await(self._source.capture_frame(frame))
 
