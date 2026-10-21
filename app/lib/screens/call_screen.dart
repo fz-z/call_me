@@ -27,6 +27,7 @@ class _CallScreenState extends State<CallScreen> {
   Function()? _cancelTrackSub;
   Function()? _cancelAgentDisconnectSub;
   bool _agentEndedCall = false;
+  bool _agentAudioReady = false;
   bool _micOk = false;
   String _micError = '';
 
@@ -39,19 +40,17 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _connect() async {
     final room = Room();
 
-    // Listen for the agent's first audio — once received, transition to active
+    // Listen for the agent's first audio — once received, transition to active.
+    // The agent can publish before the mic/ringing state is ready, so keep a
+    // flag and activate as soon as both conditions are true.
     _cancelTrackSub = room.events.listen((event) {
       if (event is TrackSubscribedEvent) {
         if (event.publication.kind == TrackType.AUDIO &&
             event.participant is RemoteParticipant) {
           _cancelTrackSub?.call();
           _cancelTrackSub = null;
-          if (_state == CallState.ringing && mounted) {
-            setState(() {
-              _state = CallState.active;
-              _duration.start();
-            });
-          }
+          _agentAudioReady = true;
+          _activateIfReady();
         }
       }
     });
@@ -97,6 +96,7 @@ class _CallScreenState extends State<CallScreen> {
         _room = room;
         _state = CallState.ringing;
       });
+      _activateIfReady();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -105,6 +105,19 @@ class _CallScreenState extends State<CallScreen> {
         Navigator.pop(context);
       }
     }
+  }
+
+  void _activateIfReady() {
+    if (!mounted ||
+        !_agentAudioReady ||
+        _agentEndedCall ||
+        _state != CallState.ringing) {
+      return;
+    }
+    setState(() {
+      _state = CallState.active;
+      _duration.start();
+    });
   }
 
   Future<void> _hangup() async {
