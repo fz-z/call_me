@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 from main import app
@@ -32,6 +34,32 @@ class TestVoiceAuditionText:
         assert resp.status_code == 200
         assert resp.json()
         assert "voice_id" not in resp.json()[0]
+        assert resp.json()[0]["has_classic_voice"] is True
+
+    def test_realtime_only_voice_cannot_gain_tts_by_linking_config(self, clean_db):
+        from database import _sync_conn
+
+        voice_id = str(uuid.uuid4())
+        conn = _sync_conn()
+        try:
+            conn.execute(
+                "INSERT INTO voices (id, name, voice_id, type, created_at) VALUES (?, ?, '', 'cloned', ?)",
+                (voice_id, "仅实时音色", "2026-10-21T00:00:00+00:00"),
+            )
+            tts_id = conn.execute("SELECT id FROM tts_configs LIMIT 1").fetchone()["id"]
+            conn.commit()
+        finally:
+            conn.close()
+
+        listed = client.get("/api/admin/voices", headers=_admin_header())
+        assert next(item for item in listed.json() if item["id"] == voice_id)["has_classic_voice"] is False
+        linked = client.post(
+            f"/api/admin/voices/{voice_id}/tts-configs",
+            headers=_admin_header(),
+            json={"tts_config_id": tts_id},
+        )
+        assert linked.status_code == 400
+        assert "classic" in linked.json()["detail"].lower()
 
     def test_update_audition_text(self, clean_db):
         voice, _, _ = _get_first_voice_and_tts()
@@ -45,6 +73,11 @@ class TestVoiceAuditionText:
         )
         assert resp.status_code == 200
         assert resp.json()["name"] == voice["name"]
+        assert resp.json()["audition_text"] == "这是一段试听文本"
+
+        listed = client.get("/api/admin/voices", headers=_admin_header())
+        assert listed.status_code == 200
+        assert next(item for item in listed.json() if item["id"] == voice["id"])["audition_text"] == "这是一段试听文本"
 
         from database import _sync_conn
         conn = _sync_conn()
