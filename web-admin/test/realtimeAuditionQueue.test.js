@@ -116,6 +116,26 @@ test('a stale playback rejection cannot fail a newer audition', async () => {
   assert.equal(queue.state.status, 'playing');
 });
 
+test('a playback rejection from before pause cannot fail resumed playback', async () => {
+  const firstPlayback = deferred();
+  let plays = 0;
+  const queue = createRealtimeAuditionQueue({
+    request: async () => 'audio',
+    makeUrl: () => 'blob:audio',
+    revokeUrl: () => {},
+    play: () => (++plays === 1 ? firstPlayback.promise : Promise.resolve()),
+    pause: () => {},
+    onState: () => {},
+  });
+  queue.start(['一']);
+  await tick();
+  queue.pause();
+  queue.resume();
+  firstPlayback.reject(new Error('旧播放失败'));
+  await tick();
+  assert.equal(queue.state.status, 'playing');
+});
+
 test('a failed segment can be retried without replaying completed segments', async () => {
   const h = harness();
   h.queue.start(['一', '二']);

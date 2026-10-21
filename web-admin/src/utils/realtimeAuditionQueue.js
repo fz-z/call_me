@@ -8,6 +8,7 @@ export function createRealtimeAuditionQueue({ request, makeUrl, revokeUrl, play,
   let nextUrl = '';
   let nextError = '';
   let inFlight = null;
+  let playbackAttempt = 0;
 
   function snapshot() { return { status, index, total: segments.length, error }; }
   function emit() { onState(snapshot()); }
@@ -20,12 +21,13 @@ export function createRealtimeAuditionQueue({ request, makeUrl, revokeUrl, play,
   function beginPlay() {
     const capturedGeneration = generation;
     const playingUrl = currentUrl;
+    const attempt = ++playbackAttempt;
     status = 'playing';
     error = '';
     emit();
     try {
       Promise.resolve(play(playingUrl)).catch((failure) => {
-        if (generation !== capturedGeneration || currentUrl !== playingUrl || status !== 'playing') return;
+        if (generation !== capturedGeneration || playbackAttempt !== attempt || currentUrl !== playingUrl || status !== 'playing') return;
         status = 'error';
         error = failure?.message || '音频播放失败。';
         emit();

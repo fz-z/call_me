@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createGenerationGuard } from '../src/utils/voiceManagement.js';
 import { getRealtimeAuditionTextError, runCurrentPreview, splitRealtimeAuditionText } from '../src/utils/realtimeVoiceAudition.js';
 
@@ -45,4 +46,13 @@ test('a rejected request from a closed preview is discarded', async () => {
   guard.invalidate();
   reject(new Error('aborted'));
   assert.equal(await result, null);
+});
+
+test('audition modal wires the queue and long-text playback controls', () => {
+  const component = readFileSync(new URL('../src/components/RealtimeVoiceAudition.vue', import.meta.url), 'utf8');
+  assert.match(component, /createRealtimeAuditionQueue/);
+  assert.match(component, /MAX_REALTIME_AUDITION_TEXT_LENGTH/);
+  assert.match(component, /暂停/);
+  assert.match(component, /停止/);
+  assert.match(component, /重试当前段/);
 });
