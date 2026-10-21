@@ -220,6 +220,7 @@ class VoiceOut(BaseModel):
     id: str
     name: str
     type: str
+    audition_text: Optional[str] = None
     created_at: str
 
 

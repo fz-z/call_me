@@ -45,6 +45,11 @@ class TestVoiceAuditionText:
         )
         assert resp.status_code == 200
         assert resp.json()["name"] == voice["name"]
+        assert resp.json()["audition_text"] == "这是一段试听文本"
+
+        listed = client.get("/api/admin/voices", headers=_admin_header())
+        assert listed.status_code == 200
+        assert next(item for item in listed.json() if item["id"] == voice["id"])["audition_text"] == "这是一段试听文本"
 
         from database import _sync_conn
         conn = _sync_conn()

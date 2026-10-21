@@ -17,6 +17,7 @@
 - Create `web-admin/src/views/VoiceDetailView.vue`: routed detail page, independent action forms, classic audition.
 - Modify `web-admin/src/views/VoicePoolView.vue`: overview only, correctly classified realtime column, route to detail. Keep existing two creation dialogs.
 - Modify `web-admin/src/router.js`: `/voices/:id` route.
+- Modify `api/models.py` and `api/tests/test_voices.py`: expose persisted `audition_text` to the detail page without exposing provider voice IDs.
 
 ### Task 1: Classify binding data at the UI boundary
 
@@ -98,7 +99,9 @@ import VoiceDetailView from './views/VoiceDetailView.vue';
 
 ### Task 4: Final verification and review
 
-**Files:** All changed files from Tasks 1–3.
+**Files:** All changed files from Tasks 1–3, `api/models.py`, `api/tests/test_voices.py`.
+
+- [ ] **Step 0: Lock the default audition text contract.** Extend `TestVoiceAuditionText.test_update_audition_text` to assert the PATCH response and subsequent GET `/api/admin/voices` response contain the saved text; verify red with `PHOTOS_DIR=/private/tmp/call_me_voice_detail_photos python -m pytest tests/test_voices.py::TestVoiceAuditionText::test_update_audition_text -q`. Add `audition_text: Optional[str] = None` to `VoiceOut`, then verify green with the same command.
 
 - [ ] **Step 1: Run `node --test web-admin/test/*.test.js` and `npm run build` freshly.** Read full output; do not claim success based on previous runs.
 - [ ] **Step 2: Run `git diff --check`, inspect the diff against the spec, and ensure no provider voice IDs or keys are rendered or logged.**
