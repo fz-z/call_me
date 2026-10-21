@@ -14,6 +14,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from .base import RealtimeEvent, RealtimeRuntimeConfig, RealtimeRuntimeError
 
 logger = logging.getLogger("realtime.qwen")
+MAX_PENDING_OUTPUT_BYTES = 24_000 * 2 * 5  # At most five seconds of PCM16 audio.
+OUTPUT_CHUNK_BYTES = 24_000 * 2 // 50  # 20 ms; never give LiveKit one long uncancellable frame.
 
 
 TranscriptHandler = Callable[[RealtimeEvent], Awaitable[None] | None]
@@ -74,6 +76,10 @@ class QwenRealtimeAdapter:
         self._logged_audio = False
         self._response_active = False
         self._suppress_response_audio = False
+        self._output_queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self._pending_output_bytes = 0
+        self._output_task: asyncio.Task[None] | None = None
+        self._output_error: RealtimeRuntimeError | None = None
 
     async def run(self, config: RealtimeRuntimeConfig, bridge: Any) -> None:
         if self._started:
@@ -174,7 +180,11 @@ class QwenRealtimeAdapter:
 
     async def _consume_messages(self) -> None:
         while True:
+            if self._output_error is not None:
+                raise self._output_error
             message = await self._websocket.receive()
+            if self._output_error is not None:
+                raise self._output_error
             kind = getattr(message, "type", None)
             if self._is_text_message(kind):
                 await self._handle_message(message.data)
@@ -193,6 +203,42 @@ class QwenRealtimeAdapter:
             return kind.upper() in {"CLOSE", "CLOSED", "CLOSING", "ERROR"}
         return getattr(kind, "name", None) in {"CLOSE", "CLOSED", "CLOSING", "ERROR"}
 
+    def _queue_output(self, pcm: bytes) -> None:
+        if self._pending_output_bytes + len(pcm) > MAX_PENDING_OUTPUT_BYTES:
+            raise RealtimeRuntimeError("Qwen realtime audio output backlog exceeded")
+        self._pending_output_bytes += len(pcm)
+        for start in range(0, len(pcm), OUTPUT_CHUNK_BYTES):
+            self._output_queue.put_nowait(pcm[start : start + OUTPUT_CHUNK_BYTES])
+        if self._output_task is None or self._output_task.done():
+            self._output_task = asyncio.create_task(self._drain_output())
+
+    async def _drain_output(self) -> None:
+        try:
+            while True:
+                pcm = await self._output_queue.get()
+                try:
+                    await self._bridge.publish_pcm(pcm)
+                finally:
+                    self._pending_output_bytes -= len(pcm)
+                    self._output_queue.task_done()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self._output_error = RealtimeRuntimeError("Failed to publish Qwen realtime audio")
+            logger.warning("Qwen realtime audio output failed")
+            if self._websocket is not None:
+                await _maybe_await(self._websocket.close())
+
+    async def _stop_output(self) -> None:
+        task, self._output_task = self._output_task, None
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        while not self._output_queue.empty():
+            pcm = self._output_queue.get_nowait()
+            self._pending_output_bytes -= len(pcm)
+            self._output_queue.task_done()
+
     async def _handle_message(self, raw_data: Any) -> None:
         try:
             payload = json.loads(raw_data)
@@ -208,13 +254,20 @@ class QwenRealtimeAdapter:
         elif event_type == "response.done":
             response = payload.get("response")
             status = response.get("status") if isinstance(response, dict) else None
-            logger.info("Qwen realtime response ended cancelled=%s", status == "cancelled")
+            if status not in {"completed", "cancelled", "failed", "incomplete"}:
+                status = "unknown"
+            details = response.get("status_details") if isinstance(response, dict) else None
+            reason = details.get("reason") if isinstance(details, dict) else None
+            if reason not in {"turn_detected", "client_cancelled"}:
+                reason = "other" if reason else "none"
+            logger.info("Qwen realtime response ended status=%s reason=%s", status, reason)
             self._response_active = False
             self._suppress_response_audio = False
         elif event_type == "input_audio_buffer.speech_started":
             logger.info("Qwen realtime caller speech started response_active=%s", self._response_active)
-            if self._config.allow_interruptions and self._response_active:
-                self._suppress_response_audio = True
+            if self._config.allow_interruptions:
+                self._suppress_response_audio = self._response_active
+                await self._stop_output()
                 cleared = await self._bridge.clear_output()
                 logger.info("Qwen realtime interrupted output queue_cleared=%s", cleared)
         if event_type == "response.audio.delta":
@@ -231,7 +284,7 @@ class QwenRealtimeAdapter:
             if len(pcm) % 2:
                 raise RealtimeRuntimeError("Invalid audio message from Qwen realtime provider")
             if not self._suppress_response_audio:
-                await self._bridge.publish_pcm(pcm)
+                self._queue_output(pcm)
         if "transcript" in event_type:
             await self._emit_event(RealtimeEvent(type=event_type, data=payload))
 
@@ -247,6 +300,7 @@ class QwenRealtimeAdapter:
             self._closed = True
             self._response_active = False
             self._suppress_response_audio = False
+            await self._stop_output()
             self._connection_ready.set()
             websocket, self._websocket = self._websocket, None
             session, self._session = self._session, None

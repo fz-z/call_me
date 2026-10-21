@@ -54,3 +54,13 @@
 - [ ] The local Python 3.11 environment lacks LiveKit. Copy `agent/` to `/tmp/call-me-interruption-tests/agent/` on the ECS, then run `docker run --rm --network none --memory 512m -v /tmp/call-me-interruption-tests/agent:/app:ro -w /app call_me-agent python -m unittest discover -s tests -v` over SSH. This uses the already-built Agent image and does not replace the running container or call the paid provider.
 - [ ] Request independent code review of the branch against `db87e44`; resolve all critical and important issues; rerun verification.
 - [ ] Confirm production rollout scope: GitHub push + server fast-forward + `docker compose up -d --build agent` only, then inspect health/logs and perform one real-call interruption check. Record the previous Git SHA and image ID for rollback. Do not claim real-call success without actual observation.
+
+### Task 5: Address review-discovered playback tail and backpressure
+
+**Files:** Modify `agent/realtime/qwen.py`, `agent/tests/test_qwen_realtime.py` and the approved design spec.
+
+- [ ] Write and run failing event-sequence test `response.created → audio.delta → response.done → speech_started → response.created → audio.delta`; assert the old queued tail is cleared and only new audio remains.
+- [ ] Write and run a failing blocked-output test: make `publish_pcm` wait, feed `speech_started` through the same WebSocket consumer, and require the clear event before releasing the fake publisher.
+- [ ] Make Qwen's WebSocket consumer queue PCM to an independent output task. Bound pending output to 5 seconds of 24 kHz mono PCM16 and split each provider delta into 20 ms frames. On speech start, cancel the output task, drain pending PCM, then call bridge `clear_output()` even when `response.done` already arrived. Suppress late old deltas only while the old response remains active.
+- [ ] Add a failing log test for `response.done` status/reason; log only allowlisted status and reason values, never provider text. Rerun the focused tests and full suite in the isolated Agent image.
+- [ ] Re-request independent review; amend the design spec to document why `response.done` is not playout completion and why receive/playback are decoupled.

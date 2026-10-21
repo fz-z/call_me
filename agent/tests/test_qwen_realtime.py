@@ -5,7 +5,7 @@ import unittest
 
 from realtime.base import RealtimeRuntimeConfig, RealtimeRuntimeError
 from realtime.factory import create_realtime_provider
-from realtime.qwen import QwenRealtimeAdapter
+from realtime.qwen import MAX_PENDING_OUTPUT_BYTES, QwenRealtimeAdapter
 
 
 class FakeMessage:
@@ -78,14 +78,34 @@ class FakeBridge:
     def __init__(self):
         self.published = []
         self.clear_calls = 0
+        self.published_event = asyncio.Event()
 
     async def publish_pcm(self, pcm):
         self.published.append(pcm)
+        self.published_event.set()
 
     async def clear_output(self):
         self.clear_calls += 1
         self.published.clear()
         return True
+
+
+class BlockingOutputBridge(FakeBridge):
+    def __init__(self):
+        super().__init__()
+        self.publish_started = asyncio.Event()
+        self.release_publish = asyncio.Event()
+        self.cleared = asyncio.Event()
+
+    async def publish_pcm(self, pcm):
+        self.publish_started.set()
+        await self.release_publish.wait()
+        await super().publish_pcm(pcm)
+
+    async def clear_output(self):
+        result = await super().clear_output()
+        self.cleared.set()
+        return result
 
 
 def runtime_config(**overrides):
@@ -102,6 +122,96 @@ def runtime_config(**overrides):
 
 
 class QwenRealtimeAdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_output_backlog_is_bounded(self):
+        adapter = QwenRealtimeAdapter(runtime_config())
+        adapter._bridge = BlockingOutputBridge()
+        full = b"\x01\x00" * (MAX_PENDING_OUTPUT_BYTES // 2)
+        await adapter._handle_message(json.dumps({
+            "type": "response.audio.delta", "delta": base64.b64encode(full).decode("ascii"),
+        }))
+
+        with self.assertRaisesRegex(RealtimeRuntimeError, "backlog exceeded"):
+            await adapter._handle_message(json.dumps({
+                "type": "response.audio.delta", "delta": base64.b64encode(b"\x02\x00").decode("ascii"),
+            }))
+        await adapter.close()
+        self.assertEqual(adapter._pending_output_bytes, 0)
+
+    async def test_large_audio_delta_is_published_as_short_frames(self):
+        bridge = FakeBridge()
+        adapter = QwenRealtimeAdapter(runtime_config())
+        adapter._bridge = bridge
+        pcm = b"\x01\x00" * 4_000
+
+        await adapter._handle_message(json.dumps({
+            "type": "response.audio.delta",
+            "delta": base64.b64encode(pcm).decode("ascii"),
+        }))
+        await adapter._output_queue.join()
+
+        self.assertEqual(b"".join(bridge.published), pcm)
+        self.assertTrue(all(len(frame) <= 960 for frame in bridge.published))
+        await adapter.close()
+
+    async def test_response_end_logs_safe_status_and_reason_only(self):
+        adapter = QwenRealtimeAdapter(runtime_config())
+        event = {
+            "type": "response.done",
+            "response": {
+                "status": "cancelled",
+                "status_details": {"reason": "turn_detected", "message": "sk-private-key voice-private-id"},
+            },
+        }
+
+        with self.assertLogs("realtime.qwen", level="INFO") as captured:
+            await adapter._handle_message(json.dumps(event))
+
+        logs = "\n".join(captured.output)
+        self.assertIn("status=cancelled", logs)
+        self.assertIn("reason=turn_detected", logs)
+        self.assertNotIn("sk-private-key", logs)
+        self.assertNotIn("voice-private-id", logs)
+
+    async def test_speech_start_after_response_done_clears_unplayed_tail(self):
+        bridge = FakeBridge()
+        adapter = QwenRealtimeAdapter(runtime_config())
+        adapter._bridge = bridge
+        audio = lambda value: {"type": "response.audio.delta", "delta": base64.b64encode(value).decode("ascii")}
+        for event in [
+            {"type": "response.created"}, audio(b"\x01\x00"),
+            {"type": "response.done", "response": {"status": "completed"}},
+            {"type": "input_audio_buffer.speech_started"},
+            {"type": "response.created"}, audio(b"\x02\x00"),
+        ]:
+            await adapter._handle_message(json.dumps(event))
+        await adapter._output_queue.join()
+
+        self.assertEqual(bridge.clear_calls, 1)
+        self.assertEqual(bridge.published, [b"\x02\x00"])
+        await adapter.close()
+
+    async def test_blocked_output_does_not_delay_speech_start_event(self):
+        bridge = BlockingOutputBridge()
+        adapter = QwenRealtimeAdapter(runtime_config())
+        adapter._bridge = bridge
+        websocket = FakeWebSocket([
+            FakeMessage("TEXT", json.dumps({"type": "response.created"})),
+            FakeMessage("TEXT", json.dumps({"type": "response.audio.delta", "delta": base64.b64encode(b"\x01\x00").decode("ascii")})),
+        ])
+        adapter._websocket = websocket
+        consumer = asyncio.create_task(adapter._consume_messages())
+        await asyncio.wait_for(bridge.publish_started.wait(), timeout=0.2)
+        websocket.messages.put_nowait(FakeMessage("TEXT", json.dumps({"type": "input_audio_buffer.speech_started"})))
+        websocket.messages.put_nowait(FakeMessage("CLOSE"))
+        try:
+            await asyncio.wait_for(bridge.cleared.wait(), timeout=0.2)
+        finally:
+            bridge.release_publish.set()
+            with self.assertRaises(RealtimeRuntimeError):
+                await consumer
+
+        self.assertEqual(bridge.clear_calls, 1)
+
     async def test_speech_start_clears_greeting_and_discards_late_audio_until_done(self):
         bridge = FakeBridge()
         adapter = QwenRealtimeAdapter(runtime_config())
@@ -118,9 +228,11 @@ class QwenRealtimeAdapterTests(unittest.IsolatedAsyncioTestCase):
         ]
         for event in events:
             await adapter._handle_message(json.dumps(event))
+        await adapter._output_queue.join()
 
         self.assertEqual(bridge.clear_calls, 1)
         self.assertEqual(bridge.published, [b"\x03\x00"])
+        await adapter.close()
 
     async def test_speech_start_does_not_clear_when_interruptions_are_disabled(self):
         bridge = FakeBridge()
@@ -129,9 +241,11 @@ class QwenRealtimeAdapterTests(unittest.IsolatedAsyncioTestCase):
         await adapter._handle_message(json.dumps({"type": "response.created"}))
         await adapter._handle_message(json.dumps({"type": "input_audio_buffer.speech_started"}))
         await adapter._handle_message(json.dumps({"type": "response.audio.delta", "delta": base64.b64encode(b"\x01\x00").decode("ascii")}))
+        await adapter._output_queue.join()
 
         self.assertEqual(bridge.clear_calls, 0)
         self.assertEqual(bridge.published, [b"\x01\x00"])
+        await adapter.close()
 
     async def test_speech_start_without_active_response_keeps_next_response_audio(self):
         bridge = FakeBridge()
@@ -140,9 +254,11 @@ class QwenRealtimeAdapterTests(unittest.IsolatedAsyncioTestCase):
         await adapter._handle_message(json.dumps({"type": "input_audio_buffer.speech_started"}))
         await adapter._handle_message(json.dumps({"type": "response.created"}))
         await adapter._handle_message(json.dumps({"type": "response.audio.delta", "delta": base64.b64encode(b"\x01\x00").decode("ascii")}))
+        await adapter._output_queue.join()
 
-        self.assertEqual(bridge.clear_calls, 0)
+        self.assertEqual(bridge.clear_calls, 1)
         self.assertEqual(bridge.published, [b"\x01\x00"])
+        await adapter.close()
 
     async def test_connects_with_authorization_and_initializes_voice_once(self):
         websocket = FakeWebSocket([FakeMessage("CLOSE")])
@@ -222,7 +338,6 @@ class QwenRealtimeAdapterTests(unittest.IsolatedAsyncioTestCase):
             FakeMessage("TEXT", json.dumps({"type": "response.audio.delta", "delta": base64.b64encode(audio).decode("ascii")})),
             FakeMessage("TEXT", json.dumps({"type": "conversation.item.input_audio_transcription.completed", "transcript": "hi"})),
             FakeMessage("TEXT", json.dumps({"type": "response.audio_transcript.delta", "delta": "hello"})),
-            FakeMessage("CLOSE"),
         ])
         events = []
         adapter = QwenRealtimeAdapter(
@@ -232,8 +347,11 @@ class QwenRealtimeAdapterTests(unittest.IsolatedAsyncioTestCase):
         )
         bridge = FakeBridge()
 
+        run_task = asyncio.create_task(adapter.run(runtime_config(), bridge))
+        await asyncio.wait_for(bridge.published_event.wait(), timeout=0.2)
+        websocket.messages.put_nowait(FakeMessage("CLOSE"))
         with self.assertRaises(RealtimeRuntimeError):
-            await adapter.run(runtime_config(), bridge)
+            await run_task
 
         self.assertEqual(bridge.published, [audio])
         self.assertEqual(
