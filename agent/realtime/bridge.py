@@ -162,19 +162,26 @@ class LiveKitAudioBridge:
             raise RealtimeRuntimeError("Output audio is not aligned to PCM16 samples")
         async with self._output_lock:
             if self._source is None:
-                self._source = self._create_source()
-                self._output_track = self._create_track(self._source)
-                logger.info("Publishing realtime audio track")
+                source = self._create_source()
                 try:
-                    self._publication = await asyncio.wait_for(
-                        self._room.local_participant.publish_track(self._output_track),
+                    track = self._create_track(source)
+                    logger.info("Publishing realtime audio track")
+                    publication = await asyncio.wait_for(
+                        self._room.local_participant.publish_track(track),
                         timeout=10,
                     )
                 except asyncio.TimeoutError as exc:
+                    await self._close_resource(source)
                     logger.error("Timed out publishing realtime audio track")
                     raise RealtimeRuntimeError(
                         "Timed out publishing realtime audio track"
                     ) from exc
+                except BaseException:
+                    await self._close_resource(source)
+                    raise
+                self._source = source
+                self._output_track = track
+                self._publication = publication
                 logger.info("Realtime audio track published")
             frame = self._create_frame(data)
             await _maybe_await(self._source.capture_frame(frame))

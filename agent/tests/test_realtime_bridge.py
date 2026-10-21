@@ -64,6 +64,21 @@ class FakeRoom:
         self.local_participant = FakeParticipant()
 
 
+class BlockingPublishParticipant(FakeParticipant):
+    def __init__(self):
+        super().__init__()
+        self.publish_started = asyncio.Event()
+        self.release_publish = asyncio.Event()
+        self.attempted = []
+
+    async def publish_track(self, track):
+        self.attempted.append(track)
+        if len(self.attempted) == 1:
+            self.publish_started.set()
+            await self.release_publish.wait()
+        return await super().publish_track(track)
+
+
 class LiveKitAudioBridgeTests(unittest.IsolatedAsyncioTestCase):
     async def test_input_frames_are_delivered_in_order_as_16k_mono_pcm16(self):
         # 8 kHz mono samples: 1, 2. The bridge should resample before delivery.
@@ -139,6 +154,36 @@ class LiveKitAudioBridgeTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(await bridge.clear_output())
         await bridge.publish_pcm(b"\x02\x00")
         self.assertEqual([frame.data for frame in source.frames], [b"\x01\x00", b"\x02\x00"])
+
+    async def test_cancelled_first_publish_retries_with_new_source(self):
+        room = FakeRoom()
+        room.local_participant = BlockingPublishParticipant()
+        sources = []
+
+        def create_source(sample_rate, num_channels):
+            source = FakeSource()
+            sources.append(source)
+            return source
+
+        bridge = LiveKitAudioBridge(
+            room=room, on_input=lambda pcm: None,
+            audio_source_factory=create_source,
+            local_track_factory=lambda name, output_source: output_source,
+            audio_frame_factory=lambda data, sample_rate, num_channels: FakeFrame(data, sample_rate, num_channels),
+        )
+
+        first_publish = asyncio.create_task(bridge.publish_pcm(b"\x01\x00"))
+        await asyncio.wait_for(room.local_participant.publish_started.wait(), timeout=1)
+        first_publish.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await first_publish
+
+        await bridge.publish_pcm(b"\x02\x00")
+
+        self.assertEqual(len(room.local_participant.attempted), 2)
+        self.assertEqual(room.local_participant.published, [sources[1]])
+        self.assertTrue(sources[0].closed)
+        self.assertEqual([frame.data for frame in sources[1].frames], [b"\x02\x00"])
 
     async def test_close_is_idempotent_and_cleans_up_the_stream_and_source(self):
         stream = FakeStream([])
