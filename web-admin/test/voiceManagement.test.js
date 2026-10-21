@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   realtimeBindings,
   availableRealtimeConfigs,
+  getRealtimeAudioFileError,
 } from '../src/utils/voiceManagement.js';
 
 const mixedBindings = [
@@ -23,4 +24,10 @@ test('new clone choices exclude existing and non-cloneable configs', () => {
     { id: 'rt-d', capabilities_json: 'invalid' },
   ];
   assert.deepEqual(availableRealtimeConfigs(configs, mixedBindings).map((item) => item.id), ['rt-b']);
+});
+
+test('realtime clone rejects unsupported files and oversize audio before upload', () => {
+  assert.match(getRealtimeAudioFileError({ name: 'sample.txt', size: 100 }), /WAV、MP3、M4A/);
+  assert.match(getRealtimeAudioFileError({ name: 'sample.wav', size: 10 * 1024 * 1024 + 1 }), /10 MB/);
+  assert.equal(getRealtimeAudioFileError({ name: 'sample.M4A', size: 10 * 1024 * 1024 }), '');
 });

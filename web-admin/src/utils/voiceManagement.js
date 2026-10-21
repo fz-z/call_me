@@ -12,3 +12,13 @@ export function availableRealtimeConfigs(configs = [], bindings = []) {
     }
   });
 }
+
+export function getRealtimeAudioFileError(file) {
+  if (!file || !/\.(wav|mp3|m4a)$/i.test(file.name || '')) {
+    return '请选择 WAV、MP3、M4A 格式的参考音频。';
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    return '参考音频不能超过 10 MB。';
+  }
+  return '';
+}
