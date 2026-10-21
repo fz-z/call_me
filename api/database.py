@@ -52,7 +52,8 @@ def init_db():
                 system_prompt TEXT NOT NULL DEFAULT '',
                 owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 created_at TEXT NOT NULL,
-                speech_rate REAL NOT NULL DEFAULT 1.0
+                speech_rate REAL NOT NULL DEFAULT 1.0,
+                allow_interruptions INTEGER NOT NULL DEFAULT 1
             );
 
             CREATE TABLE IF NOT EXISTS permissions (
@@ -404,6 +405,12 @@ def init_db():
         try:
             conn.execute(
                 "ALTER TABLE agents ADD COLUMN speech_rate REAL NOT NULL DEFAULT 1.0"
+            )
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute(
+                "ALTER TABLE agents ADD COLUMN allow_interruptions INTEGER NOT NULL DEFAULT 1"
             )
         except sqlite3.OperationalError:
             pass

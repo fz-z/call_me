@@ -52,6 +52,7 @@ class AgentCreate(BaseModel):
     realtime_config_id: Optional[str] = None
     photo_url: Optional[str] = None
     speech_rate: float = 1.0
+    allow_interruptions: bool = True
 
 
 class AgentUpdate(BaseModel):
@@ -64,6 +65,7 @@ class AgentUpdate(BaseModel):
     realtime_config_id: Optional[str] = None
     photo_url: Optional[str] = None
     speech_rate: Optional[float] = None
+    allow_interruptions: Optional[bool] = None
 
 
 class AgentOut(BaseModel):
@@ -80,6 +82,7 @@ class AgentOut(BaseModel):
     photo_url: Optional[str] = None
     created_at: str
     speech_rate: float = 1.0
+    allow_interruptions: bool = True
 
 
 class PermissionOut(BaseModel):

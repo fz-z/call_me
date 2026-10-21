@@ -52,6 +52,7 @@ test('builds a realtime agent payload without classic runtime fields', () => {
     tts_config_id: null,
     photo_url: '/photos/a.png',
     speech_rate: 1.0,
+    allow_interruptions: true,
   });
 });
 
@@ -75,7 +76,20 @@ test('builds a pipeline agent payload without a realtime configuration', () => {
     tts_config_id: 'tts-a',
     photo_url: '',
     speech_rate: 1.0,
+    allow_interruptions: true,
   });
+});
+
+test('passes the per-agent interruption setting through', () => {
+  assert.equal(buildAgentRuntimePayload({
+    alias: '不可打断助手',
+    systemPrompt: '',
+    voicePoolId: 'voice-a',
+    runtimeMode: 'pipeline',
+    modelConfigId: 'llm-a',
+    ttsConfigId: 'tts-a',
+    allowInterruptions: false,
+  }).allow_interruptions, false);
 });
 
 test('passes the per-agent speech rate through', () => {

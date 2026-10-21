@@ -101,11 +101,13 @@ class TestAgentCRUD:
                 "alias": "Rate Agent",
                 "voice_pool_id": voice_pool_id,
                 "speech_rate": 1.3,
+                "allow_interruptions": False,
             },
         )
         assert response.status_code == 200, response.text
         data = response.json()
         assert data["speech_rate"] == 1.3
+        assert data["allow_interruptions"] is False
         agent_id = data["id"]
 
         from database import _sync_conn
@@ -118,14 +120,16 @@ class TestAgentCRUD:
         finally:
             db.close()
         assert runtime["speech_rate"] == 1.3
+        assert runtime["allow_interruptions"] is False
 
         updated = client.patch(
             f"/api/agents/{agent_id}",
             headers=_auth_header(),
-            json={"speech_rate": 0.8},
+            json={"speech_rate": 0.8, "allow_interruptions": True},
         )
         assert updated.status_code == 200, updated.text
         assert updated.json()["speech_rate"] == 0.8
+        assert updated.json()["allow_interruptions"] is True
 
         invalid = client.post(
             "/api/agents",

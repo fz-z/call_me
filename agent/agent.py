@@ -448,6 +448,7 @@ async def run_pipeline_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
     config = runtime
     system_prompt = (config.get("system_prompt") or "").strip()
     voice_id = config.get("voice_id")
+    allow_interruptions = bool(runtime.get("allow_interruptions", True))
 
     # LLM — use model_config from token if available, otherwise .env default
     default_llm_temp = float(os.getenv("DEFAULT_LLM_TEMPERATURE", "0.7"))
@@ -550,6 +551,7 @@ async def run_pipeline_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
         llm=llm,
         tts=tts,
         tools=[end_call_tool],
+        allow_interruptions=allow_interruptions,
         turn_handling=TurnHandlingOptions(
             turn_detector=MultilingualModel(),
             vad=ctx.proc.userdata["vad"],
@@ -633,9 +635,9 @@ async def run_pipeline_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
             logger.info(f"[timing] LLM greeting: {t_greet - t_llm_start:.2f}s (total {t_greet - t0:.2f}s)")
             if greeting_text:
                 logger.info(f"Initial greeting: {greeting_text}")
-                await session.say(greeting_text, allow_interruptions=False)
+                await session.say(greeting_text, allow_interruptions=allow_interruptions)
             else:
-                await session.say("你好", allow_interruptions=False)
+                await session.say("你好", allow_interruptions=allow_interruptions)
             t_speak = time.time()
             logger.info(f"[timing] TTS speak greeting: {t_speak - t_greet:.2f}s (total {t_speak - t0:.2f}s)")
         except Exception as e:
@@ -667,6 +669,7 @@ async def run_realtime_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
         provider_voice_id=realtime["voice_id"],
         system_prompt=runtime.get("system_prompt") or "",
         speech_rate=float(runtime.get("speech_rate") or 1.0),
+        allow_interruptions=bool(runtime.get("allow_interruptions", True)),
     )
     logger.info("Starting realtime call provider=%s model=%s", config.provider, config.model)
     started_at = time.time()

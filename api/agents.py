@@ -49,17 +49,18 @@ def create_agent(
         )
 
         speech_rate = _validate_speech_rate(body.speech_rate)
+        allow_interruptions = 1 if body.allow_interruptions else 0
         agent_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
         try:
             db.execute(
-                "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, voice_pool_id, source_agent_id, model_config_id, tts_config_id, runtime_mode, realtime_config_id, photo_url, speech_rate, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, voice_pool_id, source_agent_id, model_config_id, tts_config_id, runtime_mode, realtime_config_id, photo_url, speech_rate, allow_interruptions, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     agent_id, body.alias, selection["voice_id"], body.system_prompt,
                     user["id"], selection["voice_pool_id"], None,
                     selection["model_config_id"], selection["tts_config_id"],
                     selection["runtime_mode"], selection["realtime_config_id"], body.photo_url,
-                    speech_rate, now,
+                    speech_rate, allow_interruptions, now,
                 ),
             )
         except Exception:
@@ -132,6 +133,10 @@ def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_curr
             row["speech_rate"] if body.speech_rate is None
             else _validate_speech_rate(body.speech_rate)
         )
+        new_allow_interruptions = (
+            row["allow_interruptions"] if body.allow_interruptions is None
+            else (1 if body.allow_interruptions else 0)
+        )
 
         if body.voice_pool_id is not None:
             new_voice_pool_id = body.voice_pool_id
@@ -146,11 +151,12 @@ def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_curr
         )
 
         db.execute(
-            "UPDATE agents SET alias=?, system_prompt=?, model_config_id=?, voice_pool_id=?, voice_id=?, tts_config_id=?, runtime_mode=?, realtime_config_id=?, photo_url=?, speech_rate=? WHERE id=?",
+            "UPDATE agents SET alias=?, system_prompt=?, model_config_id=?, voice_pool_id=?, voice_id=?, tts_config_id=?, runtime_mode=?, realtime_config_id=?, photo_url=?, speech_rate=?, allow_interruptions=? WHERE id=?",
             (
                 new_alias, new_prompt, selection["model_config_id"], selection["voice_pool_id"],
                 selection["voice_id"], selection["tts_config_id"], selection["runtime_mode"],
-                selection["realtime_config_id"], new_photo_url, new_speech_rate, agent_id,
+                selection["realtime_config_id"], new_photo_url, new_speech_rate,
+                new_allow_interruptions, agent_id,
             ),
         )
         db.commit()

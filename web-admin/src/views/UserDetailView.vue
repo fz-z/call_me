@@ -33,6 +33,7 @@
         <textarea v-model="editPromptText" rows="6" style="width:100%;background:#111;color:#ddd;border:1px solid #333;border-radius:6px;padding:10px;font-size:14px" placeholder="输入新的 system prompt"></textarea>
         <label style="display:block;margin:10px 0 6px;color:#888;font-size:12px">语速：{{ Number(editSpeechRate || 1).toFixed(1) }}x（0.5 慢 – 2.0 快）</label>
         <input v-model.number="editSpeechRate" type="range" min="0.5" max="2" step="0.1" style="width:100%;margin-bottom:8px" />
+        <label style="display:flex;align-items:center;gap:6px;color:#bbb;font-size:12px;margin-bottom:8px"><input v-model="editAllowInterruptions" type="checkbox" style="width:auto;margin:0" /> 允许用户在 Agent 说话时打断</label>
         <label style="display:block;margin-bottom:4px;color:#888;font-size:13px">照片</label>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
           <img v-if="editPhotoPreview" :src="editPhotoPreview" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid #4a90d9" />
@@ -70,6 +71,7 @@ const editAliasText = ref('');
 const editPromptText = ref('');
 const editPhotoUrl = ref('');
 const editSpeechRate = ref(1.0);
+const editAllowInterruptions = ref(true);
 const editPhotoPreview = ref('');
 const uploadLoading = ref(false);
 const uploadError = ref('');
@@ -94,6 +96,7 @@ function startEdit(agent) {
   editAliasText.value = agent.alias || '';
   editPromptText.value = agent.system_prompt || '';
   editSpeechRate.value = Number(agent.speech_rate || 1.0);
+  editAllowInterruptions.value = agent.allow_interruptions !== false;
   editPhotoUrl.value = agent.photo_url || '';
   editPhotoPreview.value = agent.photo_url || '';
   uploadError.value = '';
@@ -128,6 +131,7 @@ async function saveEdit() {
       system_prompt: editPromptText.value.trim(),
       photo_url: editPhotoUrl.value,
       speech_rate: Number(editSpeechRate.value),
+      allow_interruptions: Boolean(editAllowInterruptions.value),
     });
     editingAgent.value = null;
     await load();

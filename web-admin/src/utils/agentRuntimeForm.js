@@ -24,6 +24,7 @@ export function buildAgentRuntimePayload({
   ttsConfigId,
   photoUrl,
   speechRate,
+  allowInterruptions,
 }) {
   const realtime = runtimeMode === 'realtime';
   return {
@@ -36,5 +37,6 @@ export function buildAgentRuntimePayload({
     tts_config_id: realtime ? null : (ttsConfigId || null),
     photo_url: photoUrl || '',
     speech_rate: speechRate == null ? 1.0 : Number(speechRate),
+    allow_interruptions: allowInterruptions !== false,
   };
 }

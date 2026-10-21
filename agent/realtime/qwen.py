@@ -72,6 +72,7 @@ class QwenRealtimeAdapter:
         self._connection_ready = asyncio.Event()
         self._close_lock = asyncio.Lock()
         self._logged_audio = False
+        self._response_active = False
 
     async def run(self, config: RealtimeRuntimeConfig, bridge: Any) -> None:
         if self._started:
@@ -152,6 +153,10 @@ class QwenRealtimeAdapter:
         data = bytes(pcm)
         if not data:
             return
+        if not self._config.allow_interruptions and self._response_active:
+            # The agent is speaking and this Agent is configured as
+            # uninterruptible: drop the caller audio for this turn.
+            return
         if len(data) % 2:
             raise RealtimeRuntimeError("Input audio is not aligned to PCM16 samples")
         try:
@@ -197,6 +202,10 @@ class QwenRealtimeAdapter:
             raise RealtimeRuntimeError("Invalid message from Qwen realtime provider")
         if event_type == "error":
             raise RealtimeRuntimeError("Qwen realtime provider reported an error")
+        if event_type == "response.created":
+            self._response_active = True
+        elif event_type == "response.done":
+            self._response_active = False
         if event_type == "response.audio.delta":
             if not self._logged_audio:
                 self._logged_audio = True
