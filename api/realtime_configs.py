@@ -9,7 +9,10 @@ from models import RealtimeConfigCreate, RealtimeConfigOut, RealtimeConfigUpdate
 
 
 SUPPORTED_PROVIDER = "qwen"
-SUPPORTED_MODEL = "qwen-audio-3.1-realtime-plus"
+SUPPORTED_MODELS = (
+    "qwen-audio-3.1-realtime-plus",
+    "qwen-audio-3.0-realtime-plus",
+)
 
 router = APIRouter(prefix="/api/admin/realtime-configs", tags=["realtime-configs"])
 
@@ -23,10 +26,10 @@ def _realtime_config_out(row) -> RealtimeConfigOut:
 def _validate_provider_and_model(provider: str, model: str) -> None:
     if provider != SUPPORTED_PROVIDER:
         raise HTTPException(status_code=400, detail="Provider must be qwen")
-    if model != SUPPORTED_MODEL:
+    if model not in SUPPORTED_MODELS:
         raise HTTPException(
             status_code=400,
-            detail="Model must be qwen-audio-3.1-realtime-plus",
+            detail=f"Model must be one of: {', '.join(SUPPORTED_MODELS)}",
         )
 
 

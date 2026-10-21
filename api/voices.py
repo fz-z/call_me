@@ -19,7 +19,7 @@ from realtime_audition import (
     synthesize_realtime_preview, RealtimeAuditionTooLarge,
     RealtimeAuditionNoAudio, RealtimeAuditionRejected,
 )
-from realtime_configs import SUPPORTED_MODEL, SUPPORTED_PROVIDER
+from realtime_configs import SUPPORTED_MODELS, SUPPORTED_PROVIDER
 from temporary_voice_audio import publish_voice_audio, remove_published_voice_audio
 
 router = APIRouter(prefix="/api/admin/voices", tags=["voices"])
@@ -96,7 +96,7 @@ def _get_realtime_config(db, realtime_config_id: str):
     ).fetchone()
     if not config:
         raise HTTPException(status_code=404, detail="Realtime config not found")
-    if config["provider"] != SUPPORTED_PROVIDER or config["model"] != SUPPORTED_MODEL:
+    if config["provider"] != SUPPORTED_PROVIDER or config["model"] not in SUPPORTED_MODELS:
         raise HTTPException(status_code=400, detail="Realtime config is not a supported Qwen configuration")
     if not _voice_clone_is_supported(config["capabilities_json"]):
         raise HTTPException(status_code=400, detail="Realtime config must declare voice_clone capability")

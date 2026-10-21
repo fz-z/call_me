@@ -24,6 +24,27 @@ test('builds the supported Qwen realtime configuration payload', () => {
   });
 });
 
+test('builds a configuration for qwen-audio-3.0-realtime-plus', () => {
+  assert.equal(buildRealtimeConfigPayload({
+    name: '3.0 实时',
+    model: 'qwen-audio-3.0-realtime-plus',
+    api_key_id: 'qwen-key',
+    endpoint: '',
+    region: '',
+    capabilities: '{}',
+  }).model, 'qwen-audio-3.0-realtime-plus');
+});
+
+test('rejects models that are not supported by the admin UI', () => {
+  assert.throws(
+    () => buildRealtimeConfigPayload({
+      name: '实时', model: 'qwen-audio-other', api_key_id: '',
+      endpoint: '', region: '', capabilities: '{}',
+    }),
+    /不支持的实时模型/,
+  );
+});
+
 test('rejects non-object capabilities before sending a request', () => {
   assert.throws(
     () => buildRealtimeConfigPayload({

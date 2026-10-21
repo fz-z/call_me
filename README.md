@@ -28,7 +28,7 @@ Flutter App ──── LiveKit Server ──── Agent Worker（经典管线
 | 模式 | 运行方式 | 说明 |
 |------|----------|------|
 | `pipeline` | STT → LLM → TTS | 旧 Agent 的默认模式，保留模型/TTS 默认回退 |
-| `realtime` | LiveKit 音频直连端到端模型 | 全双工低延迟；首个提供商实现为 Qwen `qwen-audio-3.1-realtime-plus` |
+| `realtime` | LiveKit 音频直连端到端模型 | 全双工低延迟；首个提供商实现为 Qwen `qwen-audio-3.1-realtime-plus` / `qwen-audio-3.0-realtime-plus` |
 
 已有 Agent 保持 `pipeline`。端到端配置无效时不会静默回退到经典管线，移动端会显示“该 Agent 的实时语音服务暂不可用”。
 
@@ -50,7 +50,7 @@ LiveKit Token 只含 `agent_id`、`runtime_mode`、`call_log_id`。API Key、完
 ### 创建 Qwen 端到端实时 Agent
 
 1. 在“API Keys”创建或选择 Qwen Key。
-2. 在“实时模型”创建配置：提供商为 `qwen`、模型为 `qwen-audio-3.1-realtime-plus`，关联 API Key，并填写该区域可用的 WebSocket **endpoint** 与 **region** 标签。
+2. 在“实时模型”创建配置：提供商为 `qwen`、模型为 `qwen-audio-3.1-realtime-plus` 或 `qwen-audio-3.0-realtime-plus`，关联 API Key，并填写该区域可用的 WebSocket **endpoint** 与 **region** 标签。
 3. 在“声音库”选中声音池和实时模型，上传有权使用的参考音频，并勾选音色复刻授权确认。每个实时模型配置需要独立克隆/绑定，不能复用经典 TTS 的提供商音色 ID。
 4. 在 Agent 创建向导第一步选择“端到端实时”，只可选择已具备精确绑定的声音；缺少绑定无法保存。
 5. 先在非生产环境通话，确认通话记录带有 `realtime`、提供商、模型和（若失败）失败阶段。

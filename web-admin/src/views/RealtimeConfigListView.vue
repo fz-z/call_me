@@ -43,7 +43,11 @@
         </select>
 
         <label>模型</label>
-        <input v-model="form.model" readonly />
+        <select v-model="form.model">
+          <option v-for="model in QWEN_REALTIME_MODELS" :key="model" :value="model">
+            {{ model }}
+          </option>
+        </select>
 
         <label>API Key</label>
         <select v-model="form.api_key_id" required>
@@ -81,6 +85,7 @@ import {
   buildRealtimeConfigPayload,
   getRealtimeConfigDeleteError,
   QWEN_REALTIME_MODEL,
+  QWEN_REALTIME_MODELS,
   QWEN_REALTIME_PROVIDER,
 } from '../utils/realtimeConfigForm.js';
 
@@ -127,6 +132,7 @@ function edit(config) {
   formError.value = '';
   setForm({
     name: config.name,
+    model: config.model,
     api_key_id: config.api_key_id || '',
     endpoint: config.endpoint || '',
     region: config.region || '',

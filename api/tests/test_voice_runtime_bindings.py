@@ -20,7 +20,11 @@ def _first_voice_id():
         db.close()
 
 
-def _create_realtime_config(*, capabilities={"voice_clone": True}):
+def _create_realtime_config(
+    *,
+    capabilities={"voice_clone": True},
+    model="qwen-audio-3.1-realtime-plus",
+):
     key = client.post(
         "/api/admin/api-keys",
         headers=_admin_header(),
@@ -33,7 +37,7 @@ def _create_realtime_config(*, capabilities={"voice_clone": True}):
         json={
             "name": f"Realtime config {uuid.uuid4()}",
             "provider": "qwen",
-            "model": "qwen-audio-3.1-realtime-plus",
+            "model": model,
             "api_key_id": key.json()["id"],
             "endpoint": "https://enrollment.example.test",
             "capabilities_json": json.dumps(capabilities),
@@ -123,6 +127,27 @@ def test_creating_realtime_binding_uses_exact_config_and_sanitizes_response(clea
     # is an HTTP API in the same Model Studio workspace, never the WebSocket.
     assert captured["endpoint"] == "https://enrollment.example.test"
     assert captured["voice_name"]
+
+
+def test_creating_realtime_binding_accepts_qwen_audio_3_0(clean_db, monkeypatch):
+    voice_id = _first_voice_id()
+    config = _create_realtime_config(model="qwen-audio-3.0-realtime-plus")
+    captured = {}
+
+    async def fake_enroll(audio_bytes, mime_type, api_key, tts_model=None, voice_name="", *, target_model=None, endpoint=None, audio_url=None):
+        captured["target_model"] = target_model
+        return "private-realtime-provider-voice"
+
+    monkeypatch.setattr("voices.enroll_voice", fake_enroll)
+    response = client.post(
+        f"/api/admin/voices/{voice_id}/realtime-bindings",
+        headers=_admin_header(),
+        data={"realtime_config_id": config["id"], "authorization_confirmed": "true"},
+        files={"audio_file": ("reference.wav", b"audio", "audio/wav")},
+    )
+
+    assert response.status_code == 200, response.text
+    assert captured["target_model"] == "qwen-audio-3.0-realtime-plus"
 
 
 def test_creating_realtime_binding_converts_workspace_websocket_to_enrollment_http_url(clean_db, monkeypatch):

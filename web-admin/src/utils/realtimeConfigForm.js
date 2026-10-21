@@ -1,5 +1,9 @@
 export const QWEN_REALTIME_PROVIDER = 'qwen';
-export const QWEN_REALTIME_MODEL = 'qwen-audio-3.1-realtime-plus';
+export const QWEN_REALTIME_MODELS = [
+  'qwen-audio-3.1-realtime-plus',
+  'qwen-audio-3.0-realtime-plus',
+];
+export const QWEN_REALTIME_MODEL = QWEN_REALTIME_MODELS[0];
 
 function trimString(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -17,10 +21,15 @@ export function buildRealtimeConfigPayload(form) {
     throw new Error('Capabilities 必须是 JSON 对象');
   }
 
+  const model = trimString(form.model) || QWEN_REALTIME_MODEL;
+  if (!QWEN_REALTIME_MODELS.includes(model)) {
+    throw new Error('不支持的实时模型');
+  }
+
   return {
     name: trimString(form.name),
     provider: QWEN_REALTIME_PROVIDER,
-    model: QWEN_REALTIME_MODEL,
+    model,
     api_key_id: form.api_key_id || null,
     endpoint: trimString(form.endpoint),
     region: trimString(form.region),
