@@ -614,7 +614,7 @@ Synthesize `你好，这是一段新音色测试。` with the new provider voice
 
 - [ ] **Step 4: Update the binding transactionally**
 
-Back up the existing provider voice ID, then update only the confirmed classic TTS binding in one SQLite transaction. Do not change realtime bindings and do not delete the old provider voice.
+Back up the existing provider voice ID, then in one SQLite transaction update the confirmed classic TTS binding, `voices.voice_id` for the pool voice, every `agents.voice_id` row that copied that provider ID, and the `voice_runtime_bindings` row for the classic TTS config. Existing pipeline agents resolve the legacy `agents.voice_id` copy before the voice pool, so updating only `voices` leaves them calling the retired provider voice. Do not change realtime bindings and do not delete the old provider voice.
 
 - [ ] **Step 5: Repeat only for another voice with a confirmed source recording**
 
