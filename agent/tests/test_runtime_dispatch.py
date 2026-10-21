@@ -11,6 +11,7 @@ from agent import (
     _monitor_silence,
     _parse_worker_metadata,
     _register_pipeline_cleanup,
+    _safe_failure_reason,
     entrypoint,
     run_realtime_call,
 )
@@ -86,6 +87,14 @@ class FakeBridge:
 
 
 class RuntimeDispatchTests(unittest.IsolatedAsyncioTestCase):
+    def test_realtime_failure_reason_uses_only_allowed_diagnostic_codes(self):
+        for code in ("provider_error", "connection_closed", "audio_publish_failure"):
+            error = RealtimeRuntimeError("Bearer sk-private-key voice-private-id", code=code)
+            self.assertEqual(_safe_failure_reason(error), code)
+
+        untrusted = RealtimeRuntimeError("Bearer sk-private-key", code="sk-private-key")
+        self.assertEqual(_safe_failure_reason(untrusted), "realtime_provider_error")
+
     def test_idle_process_count_defaults_to_one_and_rejects_invalid_values(self):
         with patch.dict("agent.os.environ", {}, clear=True):
             self.assertEqual(_idle_process_count(), 1)

@@ -122,7 +122,7 @@ async def _resolve_dispatch_metadata(ctx: JobContext, timeout: float = 15.0) -> 
 def _safe_failure_reason(error: Exception) -> str:
     """Keep Worker callback diagnostics useful without serializing secrets."""
     if isinstance(error, RealtimeRuntimeError):
-        return "realtime_provider_error"
+        return error.code
     return "worker_runtime_error"
 
 

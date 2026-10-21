@@ -147,11 +147,49 @@ class QwenRealtimeAdapterTests(unittest.IsolatedAsyncioTestCase):
             "type": "response.audio.delta", "delta": base64.b64encode(full).decode("ascii"),
         }))
 
-        with self.assertRaisesRegex(RealtimeRuntimeError, "backlog exceeded"):
+        with self.assertLogs("realtime.qwen", level="WARNING") as logs:
             await adapter._handle_message(json.dumps({
                 "type": "response.audio.delta", "delta": base64.b64encode(b"\x02\x00").decode("ascii"),
             }))
+        self.assertIn("audio_backlog_overflow", logs.output[0])
+        self.assertEqual(adapter._pending_output_bytes, MAX_PENDING_OUTPUT_BYTES)
         await adapter.close()
+        self.assertEqual(adapter._pending_output_bytes, 0)
+
+    async def test_extreme_backlog_truncates_response_but_keeps_session_alive(self):
+        bridge = BlockingOutputBridge()
+        adapter = QwenRealtimeAdapter(runtime_config())
+        adapter._bridge = bridge
+
+        def audio_delta(pcm):
+            return json.dumps({
+                "type": "response.audio.delta",
+                "delta": base64.b64encode(pcm).decode("ascii"),
+            })
+
+        try:
+            await adapter._handle_message(json.dumps({"type": "response.created"}))
+            await adapter._handle_message(audio_delta(b"\x01\x00" * (24_000 * 60)))
+            await asyncio.wait_for(bridge.publish_started.wait(), timeout=1)
+
+            with self.assertLogs("realtime.qwen", level="WARNING") as logs:
+                await adapter._handle_message(audio_delta(b"\x02\x00" * 480))
+            self.assertEqual(len(logs.output), 1)
+            self.assertIn("audio_backlog_overflow", logs.output[0])
+            self.assertTrue(adapter._suppress_response_audio)
+            await adapter._handle_message(audio_delta(b"\x04\x00"))
+
+            await adapter._handle_message(json.dumps({"type": "response.done"}))
+            bridge.release_publish.set()
+            await asyncio.wait_for(adapter._output_queue.join(), timeout=5)
+            self.assertEqual(adapter._pending_output_bytes, 0)
+
+            await adapter._handle_message(json.dumps({"type": "response.created"}))
+            await adapter._handle_message(audio_delta(b"\x03\x00"))
+            await asyncio.wait_for(adapter._output_queue.join(), timeout=5)
+            self.assertEqual(bridge.published[-1], b"\x03\x00")
+        finally:
+            await adapter.close()
         self.assertEqual(adapter._pending_output_bytes, 0)
 
     async def test_large_audio_delta_is_published_as_short_frames(self):
@@ -282,8 +320,10 @@ class QwenRealtimeAdapterTests(unittest.IsolatedAsyncioTestCase):
         session = FakeSession(websocket)
         adapter = QwenRealtimeAdapter(runtime_config(), session_factory=lambda: session)
 
-        with self.assertRaisesRegex(RealtimeRuntimeError, "connection closed"):
+        with self.assertRaisesRegex(RealtimeRuntimeError, "connection closed") as raised:
             await adapter.run(runtime_config(), FakeBridge())
+
+        self.assertEqual(raised.exception.code, "connection_closed")
 
         endpoint, options = session.connect_calls[0]
         self.assertIn("model=qwen-audio-3.1-realtime-plus", endpoint)
@@ -389,12 +429,33 @@ class QwenRealtimeAdapterTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RealtimeRuntimeError, "provider reported an error") as raised:
             await adapter.run(runtime_config(), FakeBridge())
 
+        self.assertEqual(raised.exception.code, "provider_error")
         self.assertNotIn("sk-private-key", str(raised.exception))
         self.assertNotIn("voice-private-id", str(raised.exception))
         await adapter.close()
         await adapter.close()
         self.assertEqual(websocket.close_calls, 1)
         self.assertEqual(session.close_calls, 1)
+
+    async def test_audio_publish_failure_has_safe_diagnostic_code(self):
+        class FailingBridge(FakeBridge):
+            async def publish_pcm(self, pcm):
+                raise ValueError("sk-private-key voice-private-id")
+
+        adapter = QwenRealtimeAdapter(runtime_config())
+        adapter._bridge = FailingBridge()
+        adapter._websocket = FakeWebSocket()
+        with self.assertLogs("realtime.qwen", level="WARNING") as logs:
+            await adapter._handle_message(json.dumps({
+                "type": "response.audio.delta",
+                "delta": base64.b64encode(b"\x01\x00").decode("ascii"),
+            }))
+            await asyncio.wait_for(adapter._output_task, timeout=1)
+
+        self.assertEqual(adapter._output_error.code, "audio_publish_failure")
+        self.assertNotIn("sk-private-key", " ".join(logs.output))
+        self.assertNotIn("voice-private-id", " ".join(logs.output))
+        await adapter.close()
 
     async def test_cancellation_closes_websocket_and_session(self):
         websocket = FakeWebSocket()

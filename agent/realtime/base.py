@@ -9,6 +9,15 @@ from typing import Any, Protocol
 class RealtimeRuntimeError(RuntimeError):
     """A realtime provider or runtime operation could not be completed safely."""
 
+    CODES = frozenset({
+        "realtime_provider_error", "provider_error", "connection_closed",
+        "audio_publish_failure",
+    })
+
+    def __init__(self, message: str, *, code: str = "realtime_provider_error") -> None:
+        super().__init__(message)
+        self.code = code if code in self.CODES else "realtime_provider_error"
+
 
 @dataclass(frozen=True)
 class RealtimeRuntimeConfig:

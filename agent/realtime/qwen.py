@@ -132,7 +132,8 @@ class QwenRealtimeAdapter:
             raise
         except asyncio.TimeoutError as exc:
             raise RealtimeRuntimeError("Qwen realtime connection timed out") from exc
-        except RealtimeRuntimeError:
+        except RealtimeRuntimeError as exc:
+            logger.warning("Qwen realtime session failed category=%s", exc.code)
             raise
         except Exception as exc:
             raise RealtimeRuntimeError("Qwen realtime session failed") from exc
@@ -190,7 +191,7 @@ class QwenRealtimeAdapter:
                 await self._handle_message(message.data)
                 continue
             if self._is_close_message(kind):
-                raise RealtimeRuntimeError("Qwen realtime connection closed")
+                raise RealtimeRuntimeError("Qwen realtime connection closed", code="connection_closed")
             raise RealtimeRuntimeError("Qwen realtime connection failed")
 
     @staticmethod
@@ -224,8 +225,10 @@ class QwenRealtimeAdapter:
         except asyncio.CancelledError:
             raise
         except Exception:
-            self._output_error = RealtimeRuntimeError("Failed to publish Qwen realtime audio")
-            logger.warning("Qwen realtime audio output failed")
+            self._output_error = RealtimeRuntimeError(
+                "Failed to publish Qwen realtime audio", code="audio_publish_failure"
+            )
+            logger.warning("Qwen realtime event=audio_publish_failure")
             if self._websocket is not None:
                 await _maybe_await(self._websocket.close())
 
@@ -248,7 +251,7 @@ class QwenRealtimeAdapter:
         if not isinstance(event_type, str):
             raise RealtimeRuntimeError("Invalid message from Qwen realtime provider")
         if event_type == "error":
-            raise RealtimeRuntimeError("Qwen realtime provider reported an error")
+            raise RealtimeRuntimeError("Qwen realtime provider reported an error", code="provider_error")
         if event_type == "response.created":
             self._response_active = True
         elif event_type == "response.done":
@@ -284,7 +287,11 @@ class QwenRealtimeAdapter:
             if len(pcm) % 2:
                 raise RealtimeRuntimeError("Invalid audio message from Qwen realtime provider")
             if not self._suppress_response_audio:
-                self._queue_output(pcm)
+                try:
+                    self._queue_output(pcm)
+                except RealtimeRuntimeError:
+                    self._suppress_response_audio = True
+                    logger.warning("Qwen realtime event=audio_backlog_overflow")
         if "transcript" in event_type:
             await self._emit_event(RealtimeEvent(type=event_type, data=payload))
 
