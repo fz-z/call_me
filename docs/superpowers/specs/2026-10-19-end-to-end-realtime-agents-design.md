@@ -40,6 +40,8 @@ Flutter App ── LiveKit 房间 ── Agent Worker
 
 API 仍是配置与鉴权的唯一来源。LiveKit token 只携带 `agent_id`、`runtime_mode`、通话日志 ID 等非敏感数据。Worker 在建立会话时使用 `WORKER_INTERNAL_SECRET` 向 API 读取运行时配置；API Key 和供应商音色 ID 不进入客户端 token、公开或管理员前端接口响应，且不写入日志。
 
+Worker 优先读取 LiveKit job metadata。自动派发不会把 participant attributes 填充到 job metadata，因此 Worker 在元数据缺失时连接房间并回退读取调用方的 `agent_config` attribute；这是当前 API token 的实际契约，两条路径都必须保留。
+
 ## 数据模型
 
 ### 1. Agent 模式

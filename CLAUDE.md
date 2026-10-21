@@ -87,6 +87,8 @@ All admin-managed via Web Admin. Agents reference configs by ID; null/empty = au
 
 Worker fetches its private runtime before dispatch. A `pipeline` Agent preserves dynamic LLM/TTS setup. A `realtime` Agent builds a provider adapter (currently Qwen `qwen-audio-3.1-realtime-plus`) and bridges LiveKit PCM to the provider. Unknown or incomplete realtime runtime fails safely; it never falls back to pipeline.
 
+LiveKit automatic dispatch does not populate `job.metadata` from participant attributes. The Worker tries job metadata first, then connects and reads the caller's `agent_config` participant attribute, which is the current API token contract. Keep both paths when changing dispatch.
+
 ## Operating realtime Agents
 
 1. Add/select a Qwen API Key, then create a Realtime Config in Web Admin with the fixed first-release model `qwen-audio-3.1-realtime-plus`.
