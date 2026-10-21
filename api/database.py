@@ -247,7 +247,7 @@ def init_db():
         seed_alias = os.environ.get("SEED_AGENT_ALIAS", "").strip()
         if seed_alias:
             seed_voice = os.environ.get("SEED_AGENT_VOICE", "Cherry").strip()
-            seed_prompt = os.environ.get("SEED_AGENT_SYSTEM_PROMPT", "").strip()
+            seed_prompt = ""
             seed_owner = os.environ.get("SEED_AGENT_OWNER", admin_username).strip()
 
             owner_row = conn.execute(

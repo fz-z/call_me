@@ -446,12 +446,8 @@ async def run_pipeline_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
     # provider initialization, but never create a second connection.
     connect_task = asyncio.create_task(ctx.connect())
     config = runtime
-    system_prompt = config.get("system_prompt", os.getenv("DEFAULT_SYSTEM_PROMPT", "你是一位贴心的语音智能助手。"))
+    system_prompt = (config.get("system_prompt") or "").strip()
     voice_id = config.get("voice_id")
-
-    # Global constraint: keep responses short for voice conversation
-    system_prompt = system_prompt.strip() + " 请用口语简洁回答，控制在2-3句话以内。"
-    system_prompt += " 你可以使用end_call工具：当用户表达告别意图（如说再见、拜拜等），请在友好简短告别后调用end_call挂断电话。"
 
     # LLM — use model_config from token if available, otherwise .env default
     default_llm_temp = float(os.getenv("DEFAULT_LLM_TEMPERATURE", "0.7"))
@@ -614,14 +610,11 @@ async def run_pipeline_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
     async def _speak_greeting():
         from livekit.agents.llm import ChatContext, ChatMessage
         try:
-            greeting_prompt = os.getenv(
-                "INITIAL_GREETING_PROMPT",
-                "通话刚刚接通。请根据你的人设，用中文向对方简短打招呼"
-                "（包含自我介绍），询问对方需要什么。20字以内，纯文本不要动作描写。"
-            )
+            # The persona owns the greeting style. Seed a neutral user turn so
+            # the LLM generates the opening line from the configured prompt.
             greeting_ctx = ChatContext()
             greeting_ctx.add_message(role="system", content=system_prompt)
-            greeting_ctx.add_message(role="user", content=greeting_prompt)
+            greeting_ctx.add_message(role="user", content="你好")
             t_llm_start = time.time()
             greeting_stream = llm.chat(chat_ctx=greeting_ctx)
             greeting_text = ""
@@ -635,7 +628,7 @@ async def run_pipeline_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
                 logger.info(f"Initial greeting: {greeting_text}")
                 await session.say(greeting_text, allow_interruptions=False)
             else:
-                await session.say("你好，请问有什么可以帮助你的？", allow_interruptions=False)
+                await session.say("你好", allow_interruptions=False)
             t_speak = time.time()
             logger.info(f"[timing] TTS speak greeting: {t_speak - t_greet:.2f}s (total {t_speak - t0:.2f}s)")
         except Exception as e:

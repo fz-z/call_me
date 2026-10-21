@@ -41,7 +41,7 @@ class FailingInputWebSocket(FakeWebSocket):
 
     async def send_json(self, payload):
         self.send_calls += 1
-        if self.send_calls > 1:
+        if self.send_calls > 3:
             raise ValueError("provider rejected sk-private-key")
         await super().send_json(payload)
 
@@ -107,13 +107,19 @@ class QwenRealtimeAdapterTests(unittest.IsolatedAsyncioTestCase):
         endpoint, options = session.connect_calls[0]
         self.assertIn("model=qwen-audio-3.1-realtime-plus", endpoint)
         self.assertEqual(options["headers"]["Authorization"], "Bearer sk-private-key")
-        self.assertEqual(len(websocket.sent), 1)
+        self.assertEqual(len(websocket.sent), 3)
         update = websocket.sent[0]
         self.assertEqual(update["type"], "session.update")
         self.assertEqual(update["session"]["instructions"], "Answer clearly.")
         self.assertEqual(update["session"]["voice"], "voice-private-id")
         self.assertEqual(update["session"]["modalities"], ["audio", "text"])
         self.assertEqual(update["session"]["turn_detection"]["type"], "server_vad")
+
+        greeting_item = websocket.sent[1]
+        self.assertEqual(greeting_item["type"], "conversation.item.create")
+        self.assertEqual(greeting_item["item"]["role"], "user")
+        self.assertEqual(greeting_item["item"]["content"][0]["type"], "input_text")
+        self.assertEqual(websocket.sent[2]["type"], "response.create")
 
     async def test_connection_model_query_is_authoritative_and_preserves_other_endpoint_options(self):
         websocket = FakeWebSocket([FakeMessage("CLOSE")])
@@ -141,7 +147,7 @@ class QwenRealtimeAdapterTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RealtimeRuntimeError):
             await run_task
 
-        self.assertEqual(websocket.sent[1], {
+        self.assertEqual(websocket.sent[3], {
             "type": "input_audio_buffer.append",
             "audio": base64.b64encode(b"\x01\x00\x02\x00").decode("ascii"),
         })

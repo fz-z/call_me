@@ -40,9 +40,8 @@ Token → agent_config {system_prompt, voice_id, model_config, tts_config}
 |------|--------|
 | `DASHSCOPE_API_KEY` | - |
 | `DEFAULT_LLM_TEMPERATURE` | `0.7` |
-| `DEFAULT_SYSTEM_PROMPT` | 你是一位贴心的语音智能助手。 |
 
 ## 通话行为
 
-- 接通后 Agent 主动打招呼（LLM 生成符合人设的开场白）
-- 可配置开场白提示词：`INITIAL_GREETING_PROMPT`
+- Agent 人设完全由 Web Admin 中的 `system_prompt` 控制，Worker 不再追加固定人设或回答长度限制
+- 接通后 Agent 主动打招呼；开场白由同一份 `system_prompt` 生成，不依赖单独的问候提示词

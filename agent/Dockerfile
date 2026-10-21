@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -e . |
 # can abort after a successful transfer in this environment.
 ENV HF_ENDPOINT=https://hf-mirror.com
 ENV HF_HUB_DISABLE_XET=1
-RUN python -c 'from huggingface_hub import snapshot_download; from livekit.plugins.turn_detector.models import HG_MODEL, MODEL_REVISIONS, ONNX_FILENAME; required=(f"onnx/{ONNX_FILENAME}", "added_tokens.json", "config.json", "merges.txt", "special_tokens_map.json", "tokenizer.json", "tokenizer_config.json", "vocab.json"); [snapshot_download(HG_MODEL, revision=revision, allow_patterns=required) for revision in MODEL_REVISIONS.values()]'
+RUN python -c 'from huggingface_hub import snapshot_download; from livekit.plugins.turn_detector.models import HG_MODEL, MODEL_REVISIONS, ONNX_FILENAME; required=(f"onnx/{ONNX_FILENAME}", "added_tokens.json", "config.json", "languages.json", "merges.txt", "special_tokens_map.json", "tokenizer.json", "tokenizer_config.json", "vocab.json"); [snapshot_download(HG_MODEL, revision=revision, allow_patterns=required) for revision in MODEL_REVISIONS.values()]'
 
 COPY *.py ./
 COPY realtime ./realtime

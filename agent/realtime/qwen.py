@@ -66,6 +66,7 @@ class QwenRealtimeAdapter:
         self._bridge: Any | None = None
         self._started = False
         self._closed = False
+        self._connection_ready = asyncio.Event()
         self._close_lock = asyncio.Lock()
 
     async def run(self, config: RealtimeRuntimeConfig, bridge: Any) -> None:
@@ -84,6 +85,7 @@ class QwenRealtimeAdapter:
                 ),
                 timeout=self._connect_timeout_seconds,
             )
+            self._connection_ready.set()
             await self._websocket.send_json(
                 {
                     "type": "session.update",
@@ -97,6 +99,20 @@ class QwenRealtimeAdapter:
                     },
                 }
             )
+            # The provider refuses response.create without a user message, and
+            # the call UI waits for the agent's first audio track. Seed one
+            # synthetic user turn so the agent greets the caller immediately.
+            await self._websocket.send_json(
+                {
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "你好"}],
+                    },
+                }
+            )
+            await self._websocket.send_json({"type": "response.create"})
             await self._consume_messages()
         except asyncio.CancelledError:
             await self.close()
@@ -112,6 +128,20 @@ class QwenRealtimeAdapter:
 
     async def send_audio(self, pcm: bytes | bytearray | memoryview) -> None:
         """Send 16 kHz mono PCM16 received from the LiveKit bridge."""
+        if self._closed:
+            raise RealtimeRuntimeError("Qwen realtime session is not connected")
+        if self._websocket is None:
+            # A caller track can be subscribed before the provider handshake
+            # completes. Wait for the connection instead of dropping audio.
+            try:
+                await asyncio.wait_for(
+                    self._connection_ready.wait(),
+                    timeout=self._connect_timeout_seconds,
+                )
+            except asyncio.TimeoutError as exc:
+                raise RealtimeRuntimeError(
+                    "Qwen realtime session is not connected"
+                ) from exc
         if self._closed or self._websocket is None:
             raise RealtimeRuntimeError("Qwen realtime session is not connected")
         data = bytes(pcm)
@@ -186,6 +216,7 @@ class QwenRealtimeAdapter:
             if self._closed:
                 return
             self._closed = True
+            self._connection_ready.set()
             websocket, self._websocket = self._websocket, None
             session, self._session = self._session, None
             if websocket is not None:
