@@ -24,6 +24,7 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 from qwen_asr_realtime_stt import QwenASRRealtimeSTT
 from qwen_tts import QwenTTS, resolve_qwen_tts_api_url
 from realtime.base import RealtimeEvent, RealtimeRuntimeConfig, RealtimeRuntimeError
+from realtime.transcript import RealtimeTranscriptCollector
 from realtime.bridge import LiveKitAudioBridge
 from realtime.factory import create_realtime_provider
 
@@ -673,22 +674,12 @@ async def run_realtime_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
     )
     logger.info("Starting realtime call provider=%s model=%s", config.provider, config.model)
     started_at = time.time()
-    transcript_turns: list[dict] = []
+    transcript_collector = RealtimeTranscriptCollector()
+    transcript_turns = transcript_collector.turns
     adapter = create_realtime_provider(config)
 
     async def _on_realtime_event(event: RealtimeEvent) -> None:
-        if "transcript" not in event.type:
-            return
-        data = event.data if isinstance(event.data, dict) else {}
-        text = data.get("transcript") or data.get("delta")
-        if not isinstance(text, str) or not text.strip():
-            return
-        role = "assistant" if event.type.startswith("response.") else "user"
-        transcript_turns.append({
-            "role": role,
-            "text": text.strip(),
-            "time": round(time.time() - started_at, 1),
-        })
+        transcript_collector.add(event.type, event.data, round(time.time() - started_at, 1))
 
     # The initial provider adapter exposes an event callback at construction;
     # keep this narrow compatibility hook so future registered adapters can

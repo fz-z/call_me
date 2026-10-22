@@ -29,7 +29,7 @@
           <tr v-if="expandedId === log.id">
             <td colspan="7" style="background:#0f0f1a;padding:16px 20px">
               <p v-if="log.failure_stage" style="color:#ff9800;font-size:12px;margin:0 0 12px">失败阶段：{{ log.failure_stage }}<template v-if="log.failure_reason">（{{ log.failure_reason }}）</template></p>
-              <TranscriptView :transcript="log.transcript" />
+              <TranscriptView :transcript="log.transcript" :runtime-mode="log.runtime_mode" />
             </td>
           </tr>
         </template>
@@ -105,11 +105,13 @@ onMounted(load);
 
 <script>
 import { h } from 'vue';
+import { groupTranscriptTurns } from '../utils/callTranscript.js';
 
 const TranscriptView = {
-  props: { transcript: String },
+  props: { transcript: String, runtimeMode: String },
   render() {
-    const turns = this.transcript ? (() => { try { return JSON.parse(this.transcript); } catch { return []; } })() : [];
+    const rawTurns = this.transcript ? (() => { try { return JSON.parse(this.transcript); } catch { return []; } })() : [];
+    const turns = groupTranscriptTurns(rawTurns, this.runtimeMode);
     if (!turns.length) return h('span', { style: { color: '#888', fontSize: '13px' } }, '暂无对话记录');
 
     return h('div', { style: { maxHeight: '400px', overflowY: 'auto' } },

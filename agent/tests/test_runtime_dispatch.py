@@ -345,7 +345,9 @@ class RuntimeDispatchTests(unittest.IsolatedAsyncioTestCase):
                 pass
 
             async def run(self, config, bridge):
-                await self._event_handler(type("Event", (), {"type": "response.audio_transcript.done", "data": {"transcript": "你好"}})())
+                await self._event_handler(type("Event", (), {"type": "response.audio_transcript.delta", "data": {"response_id": "r1", "delta": "你"}})())
+                await self._event_handler(type("Event", (), {"type": "response.audio_transcript.delta", "data": {"response_id": "r1", "delta": "好"}})())
+                await self._event_handler(type("Event", (), {"type": "response.audio_transcript.done", "data": {"response_id": "r1", "transcript": "你好"}})())
 
             async def close(self):
                 pass
@@ -362,6 +364,7 @@ class RuntimeDispatchTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(ctx.connect_calls, 1)
         self.assertEqual(bridges[0].subscribed, [track])
+        self.assertEqual(len(transcript), 1)
         self.assertEqual(transcript[0]["text"], "你好")
         self.assertTrue(bridges[0].closed)
 
