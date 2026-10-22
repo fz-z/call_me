@@ -24,12 +24,16 @@
             <td><span class="tag" :style="log.runtime_mode === 'realtime' ? 'background:#3d2d00' : 'background:#1a3a5c'">{{ runtimeLabel(log) }}</span></td>
             <td>{{ log.duration_seconds != null ? formatDuration(log.duration_seconds) : '-' }}</td>
             <td><span :style="{color: log.status === 'completed' ? '#4caf50' : '#ff9800'}">{{ log.status === 'completed' ? '已完成' : '进行中' }}</span></td>
-            <td><span style="color:#888;font-size:11px">{{ log.transcript ? '展开 ▸' : '-' }}</span></td>
+            <td><span style="color:#888;font-size:11px">{{ log.has_transcript ? (expandedId === log.id ? '收起 ▾' : '展开 ▸') : '-' }}</span></td>
           </tr>
           <tr v-if="expandedId === log.id">
             <td colspan="7" style="background:#0f0f1a;padding:16px 20px">
               <p v-if="log.failure_stage" style="color:#ff9800;font-size:12px;margin:0 0 12px">失败阶段：{{ log.failure_stage }}<template v-if="log.failure_reason">（{{ log.failure_reason }}）</template></p>
-              <TranscriptView :transcript="log.transcript" :runtime-mode="log.runtime_mode" />
+              <span v-if="detailLoading" style="color:#888;font-size:13px">正在加载对话记录…</span>
+              <div v-else-if="detailError" style="color:#ff9800;font-size:13px">
+                对话记录加载失败。<button class="btn-ghost" @click.stop="retryDetail(log)">重试</button>
+              </div>
+              <TranscriptView v-else :transcript="detailTranscript" :runtime-mode="log.runtime_mode" />
             </td>
           </tr>
         </template>
@@ -49,6 +53,8 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import api from '../api.js';
+import { runtimeLabel } from '../utils/callLogRuntime.js';
+import { loadCallLogDetail } from '../utils/callLogDetails.js';
 
 const logs = ref([]);
 const total = ref(0);
@@ -56,6 +62,10 @@ const page = ref(1);
 const pageSize = 20;
 const filters = ref({ status: '', agent_id: '' });
 const expandedId = ref(null);
+const detailTranscript = ref(null);
+const detailLoading = ref(false);
+const detailError = ref(false);
+const detailCache = new Map();
 
 function formatDuration(s) {
   if (s < 60) return `${s}秒`;
@@ -64,22 +74,36 @@ function formatDuration(s) {
   return `${m}分${sec}秒`;
 }
 
-function runtimeLabel(log) {
-  const mode = log.runtime_mode === 'realtime' ? '端到端实时' : 'Pipeline';
-  return log.provider ? `${mode} · ${log.provider}` : mode;
-}
-
 function toggleExpand(log) {
-  expandedId.value = expandedId.value === log.id ? null : log.id;
+  if (!log.has_transcript) return;
+  if (expandedId.value === log.id) {
+    expandedId.value = null;
+    return;
+  }
+  expandedId.value = log.id;
+  detailTranscript.value = null;
+  fetchDetail(log);
 }
 
-function parseTranscript(raw) {
-  if (!raw) return [];
+async function fetchDetail(log) {
+  detailLoading.value = true;
+  detailError.value = false;
   try {
-    return JSON.parse(raw);
+    const detail = await loadCallLogDetail(
+      log.id,
+      async id => (await api.get(`/admin/call-logs/${id}`)).data,
+      detailCache,
+    );
+    if (expandedId.value === log.id) detailTranscript.value = detail.transcript;
   } catch {
-    return [];
+    if (expandedId.value === log.id) detailError.value = true;
+  } finally {
+    if (expandedId.value === log.id) detailLoading.value = false;
   }
+}
+
+function retryDetail(log) {
+  fetchDetail(log);
 }
 
 function clearFilters() {
@@ -90,6 +114,11 @@ function clearFilters() {
 }
 
 async function load() {
+  expandedId.value = null;
+  detailTranscript.value = null;
+  detailLoading.value = false;
+  detailError.value = false;
+  detailCache.clear();
   const params = new URLSearchParams({ page: page.value, page_size: pageSize });
   if (filters.value.status) params.set('status', filters.value.status);
   if (filters.value.agent_id) params.set('agent_id', filters.value.agent_id);
