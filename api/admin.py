@@ -190,9 +190,7 @@ def list_call_logs(
             f"""SELECT cl.id, cl.agent_id, cl.caller_user_id, cl.room_name,
                        cl.started_at, cl.ended_at, cl.duration_seconds, cl.status,
                        cl.runtime_mode, cl.provider, cl.model, cl.runtime_config_name,
-                       cl.failure_stage, cl.failure_reason,
-                       CASE WHEN cl.transcript IS NOT NULL AND cl.transcript != ''
-                            THEN 1 ELSE 0 END AS has_transcript,
+                       cl.failure_stage, cl.failure_reason, cl.has_transcript,
                        a.alias AS agent_alias, u.username AS caller_username
                 FROM call_logs cl
                 JOIN agents a ON cl.agent_id = a.id
@@ -214,9 +212,7 @@ def get_call_log_detail(call_log_id: str, admin: dict = Depends(require_admin)):
     db = _sync_conn()
     try:
         row = db.execute(
-            """SELECT cl.*, a.alias AS agent_alias, u.username AS caller_username,
-                      CASE WHEN cl.transcript IS NOT NULL AND cl.transcript != ''
-                           THEN 1 ELSE 0 END AS has_transcript
+            """SELECT cl.*, a.alias AS agent_alias, u.username AS caller_username
                FROM call_logs cl
                JOIN agents a ON cl.agent_id = a.id
                JOIN users u ON cl.caller_user_id = u.id

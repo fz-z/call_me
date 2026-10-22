@@ -17,14 +17,14 @@
       </tr></thead>
       <tbody>
         <template v-for="log in logs" :key="log.id">
-          <tr :class="{ 'row-expanded': expandedId === log.id }" @click="toggleExpand(log)" style="cursor:pointer">
+          <tr :class="{ 'row-expanded': expandedId === log.id }" @click="toggleExpand(log)" :style="{ cursor: canExpandCallLog(log) ? 'pointer' : 'default' }">
             <td style="font-size:12px">{{ (log.started_at || '').substring(0, 19).replace('T', ' ') }}</td>
             <td>{{ log.caller_username }}</td>
             <td>{{ log.agent_alias }}</td>
             <td><span class="tag" :style="log.runtime_mode === 'realtime' ? 'background:#3d2d00' : 'background:#1a3a5c'">{{ runtimeLabel(log) }}</span></td>
             <td>{{ log.duration_seconds != null ? formatDuration(log.duration_seconds) : '-' }}</td>
             <td><span :style="{color: log.status === 'completed' ? '#4caf50' : '#ff9800'}">{{ log.status === 'completed' ? '已完成' : '进行中' }}</span></td>
-            <td><span style="color:#888;font-size:11px">{{ log.has_transcript ? (expandedId === log.id ? '收起 ▾' : '展开 ▸') : '-' }}</span></td>
+            <td><span style="color:#888;font-size:11px">{{ canExpandCallLog(log) ? (expandedId === log.id ? '收起 ▾' : '展开 ▸') : '-' }}</span></td>
           </tr>
           <tr v-if="expandedId === log.id">
             <td colspan="7" style="background:#0f0f1a;padding:16px 20px">
@@ -53,7 +53,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import api from '../api.js';
-import { runtimeLabel } from '../utils/callLogRuntime.js';
+import { canExpandCallLog, runtimeLabel } from '../utils/callLogRuntime.js';
 import { loadCallLogDetail } from '../utils/callLogDetails.js';
 
 const logs = ref([]);
@@ -75,14 +75,14 @@ function formatDuration(s) {
 }
 
 function toggleExpand(log) {
-  if (!log.has_transcript) return;
+  if (!canExpandCallLog(log)) return;
   if (expandedId.value === log.id) {
     expandedId.value = null;
     return;
   }
   expandedId.value = log.id;
   detailTranscript.value = null;
-  fetchDetail(log);
+  if (log.has_transcript) fetchDetail(log);
 }
 
 async function fetchDetail(log) {

@@ -450,6 +450,14 @@ def init_db():
             except sqlite3.OperationalError:
                 pass
 
+        call_log_columns = {row["name"] for row in conn.execute("PRAGMA table_info(call_logs)")}
+        if "has_transcript" not in call_log_columns:
+            conn.execute("ALTER TABLE call_logs ADD COLUMN has_transcript INTEGER NOT NULL DEFAULT 0")
+            conn.execute(
+                "UPDATE call_logs SET has_transcript = 1 "
+                "WHERE transcript IS NOT NULL AND transcript != ''"
+            )
+
         for index_name, columns in (
             ("idx_call_logs_started_id", "started_at DESC, id DESC"),
             ("idx_call_logs_status_started_id", "status, started_at DESC, id DESC"),

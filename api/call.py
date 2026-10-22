@@ -106,9 +106,10 @@ def end_call_log(
     try:
         ended_at = datetime.now(timezone.utc).isoformat()
         db.execute(
-            "UPDATE call_logs SET status = ?, ended_at = ?, duration_seconds = ?, transcript = ?, failure_stage = ?, failure_reason = ? WHERE id = ?",
+            "UPDATE call_logs SET status = ?, ended_at = ?, duration_seconds = ?, transcript = ?, has_transcript = ?, failure_stage = ?, failure_reason = ? WHERE id = ?",
             (
                 body.status, ended_at, body.duration_seconds, body.transcript,
+                1 if body.transcript else 0,
                 body.failure_stage, body.failure_reason, call_log_id,
             ),
         )

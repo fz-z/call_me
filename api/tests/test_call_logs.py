@@ -105,12 +105,14 @@ class TestCallLog:
         try:
             log = conn.execute("SELECT id FROM call_logs ORDER BY started_at DESC LIMIT 1").fetchone()
             call_log_id = log["id"]
+            assert conn.execute("SELECT has_transcript FROM call_logs WHERE id = ?", (call_log_id,)).fetchone()[0] == 0
         finally:
             conn.close()
 
+        transcript = '[{"role":"assistant","text":"Hello"}]'
         resp = client.patch(
             f"/api/call/admin/call-logs/{call_log_id}/end",
-            json={"status": "completed", "duration_seconds": 45},
+            json={"status": "completed", "duration_seconds": 45, "transcript": transcript},
             headers=WORKER_HEADERS,
         )
         assert resp.status_code == 204
@@ -122,6 +124,8 @@ class TestCallLog:
             assert log["status"] == "completed"
             assert log["duration_seconds"] == 45
             assert log["ended_at"] is not None
+            assert log["has_transcript"] == 1
+            assert log["transcript"] == transcript
         finally:
             conn.close()
 
@@ -252,14 +256,17 @@ class TestCallLogList:
         ).status_code == 200
 
         from database import _sync_conn
-        db = _sync_conn()
         transcript = '[{"role":"assistant","text":"' + "hello" * 1000 + '"}]'
+        db = _sync_conn()
         try:
             log_id = db.execute("SELECT id FROM call_logs").fetchone()["id"]
-            db.execute("UPDATE call_logs SET transcript = ? WHERE id = ?", (transcript, log_id))
-            db.commit()
         finally:
             db.close()
+        finished = client.patch(
+            f"/api/call/admin/call-logs/{log_id}/end", headers=WORKER_HEADERS,
+            json={"status": "completed", "duration_seconds": 4, "transcript": transcript},
+        )
+        assert finished.status_code == 204, finished.text
 
         listed = client.get("/api/admin/call-logs", headers=_admin_header())
         assert listed.status_code == 200, listed.text
@@ -274,6 +281,36 @@ class TestCallLogList:
         assert detail.json()["transcript"] == transcript
         assert client.get(f"/api/admin/call-logs/{uuid.uuid4()}", headers=_admin_header()).status_code == 404
         assert client.get(f"/api/admin/call-logs/{log_id}", headers=owner_headers).status_code == 403
+
+    def test_existing_transcript_is_backfilled_on_migration(self, clean_db):
+        from database import _sync_conn, init_db
+
+        voice_pool_id = _get_voice_pool_id()
+        owner_headers = _auth_header("legacy-caller", "pw")
+        agent = client.post(
+            "/api/agents", headers=owner_headers,
+            json={"alias": "Legacy", "voice_pool_id": voice_pool_id},
+        )
+        assert agent.status_code == 200, agent.text
+        assert client.post(
+            "/api/call/token", headers=owner_headers, json={"agent_id": agent.json()["id"]}
+        ).status_code == 200
+
+        db = _sync_conn()
+        try:
+            log_id = db.execute("SELECT id FROM call_logs").fetchone()["id"]
+            db.execute("UPDATE call_logs SET transcript = ? WHERE id = ?", ('[{"role":"user","text":"old"}]', log_id))
+            db.execute("ALTER TABLE call_logs DROP COLUMN has_transcript")
+            db.commit()
+        finally:
+            db.close()
+
+        init_db()
+        db = _sync_conn()
+        try:
+            assert db.execute("SELECT has_transcript FROM call_logs WHERE id = ?", (log_id,)).fetchone()[0] == 1
+        finally:
+            db.close()
 
     def test_stable_order_for_same_timestamp(self, clean_db):
         voice_pool_id = _get_voice_pool_id()
