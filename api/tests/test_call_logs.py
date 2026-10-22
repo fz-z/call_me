@@ -23,6 +23,49 @@ def _get_voice_pool_id():
 
 
 class TestCallLog:
+    def test_realtime_runtime_config_name_is_snapshotted(self, clean_db):
+        from database import _sync_conn
+
+        voice_pool_id = _get_voice_pool_id()
+        config_id = str(uuid.uuid4())
+        db = _sync_conn()
+        try:
+            db.execute(
+                "INSERT INTO realtime_configs "
+                "(id, name, provider, model, api_key, endpoint, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (config_id, "Qwen 3.0 实时测试", "qwen", "qwen-audio-3.0-realtime-plus",
+                 "test-key", "wss://example.test/realtime", "2026-10-22T00:00:00+00:00"),
+            )
+            db.execute(
+                "INSERT INTO voice_runtime_bindings "
+                "(id, voice_pool_id, runtime_kind, runtime_config_id, provider_voice_id, created_at) "
+                "VALUES (?, ?, 'realtime', ?, ?, ?)",
+                (str(uuid.uuid4()), voice_pool_id, config_id, "voice-123", "2026-10-22T00:00:00+00:00"),
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        owner_headers = _auth_header("runtime-name-caller", "pw")
+        agent = client.post(
+            "/api/agents", headers=owner_headers,
+            json={"alias": "Realtime", "voice_pool_id": voice_pool_id,
+                  "runtime_mode": "realtime", "realtime_config_id": config_id},
+        )
+        assert agent.status_code == 200, agent.text
+        token = client.post("/api/call/token", headers=owner_headers, json={"agent_id": agent.json()["id"]})
+        assert token.status_code == 200, token.text
+
+        db = _sync_conn()
+        try:
+            db.execute("UPDATE realtime_configs SET name = ? WHERE id = ?", ("后来改名", config_id))
+            db.commit()
+            log = db.execute("SELECT * FROM call_logs WHERE agent_id = ?", (agent.json()["id"],)).fetchone()
+            assert log["runtime_config_name"] == "Qwen 3.0 实时测试"
+        finally:
+            db.close()
+
     def test_token_creates_call_log(self, clean_db):
         voice_pool_id = _get_voice_pool_id()
         owner_headers = _auth_header("caller1", "pw")

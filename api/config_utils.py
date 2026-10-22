@@ -167,6 +167,7 @@ def _resolve_realtime_config(db, agent_row) -> dict | None:
     if not config or not binding:
         return None
     return {
+        "name": config["name"],
         "provider": config["provider"],
         "model": config["model"],
         "endpoint": config["endpoint"],

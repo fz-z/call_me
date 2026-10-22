@@ -441,6 +441,7 @@ def init_db():
             ("runtime_mode", "TEXT NOT NULL DEFAULT 'pipeline'"),
             ("provider", "TEXT"),
             ("model", "TEXT"),
+            ("runtime_config_name", "TEXT"),
             ("failure_stage", "TEXT"),
             ("failure_reason", "TEXT"),
         ):
