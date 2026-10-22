@@ -90,6 +90,16 @@ class TestRealtimeConfigCrud:
         assert unsupported_model.status_code == 400
         assert "model" in unsupported_model.json()["detail"].lower()
 
+    def test_accepts_qwen_audio_3_0_realtime_plus(self, clean_db):
+        api_key_id = _create_api_key()
+
+        created = _create_realtime_config(
+            api_key_id,
+            name="Qwen 3.0 realtime",
+            model="qwen-audio-3.0-realtime-plus",
+        )
+        assert created["model"] == "qwen-audio-3.0-realtime-plus"
+
     def test_api_key_reference_must_exist_and_match_provider(self, clean_db):
         missing_key = client.post(
             "/api/admin/realtime-configs",

@@ -83,7 +83,7 @@ CREATE TABLE realtime_configs (
 
 `capabilities_json` 首期记录诸如 `voice_clone`、`audio_input`、`audio_output`、`text_transcript`、`function_calling`。它只用于 UI 过滤与配置校验，不能代替 Worker 内的提供商能力判断。
 
-第一条受支持的配置为：`provider=qwen`，`model=qwen-audio-3.1-realtime-plus`。管理端将模型、端点和地域作为明确配置，而不是散落在环境变量中。其它供应商只须新增 provider 值和适配器。
+首期受支持的配置为：`provider=qwen`，`model=qwen-audio-3.1-realtime-plus` 或 `qwen-audio-3.0-realtime-plus`。管理端将模型、端点和地域作为明确配置，而不是散落在环境变量中。其它供应商只须新增 provider 值和适配器。
 
 ### 3. 音色档案与模型绑定
 
@@ -147,7 +147,7 @@ class RealtimeProviderAdapter(Protocol):
 
 `LiveKitAudioBridge` 是 Worker 内的公共层，负责：订阅呼叫者的 LiveKit 音轨、转换为提供商要求的 PCM 格式、接收模型输出音频、发布 Agent 音轨，以及将可用的最终转录事件交给通话日志。适配器不得直接依赖 Agent 表、数据库或 Web 管理端。
 
-`QwenRealtimeAdapter` 是首个实现。它负责千问 WebSocket 协议、会话配置、`voice` 设置、事件映射、重连范围内的网络错误与正常关闭。首期固定使用 `qwen-audio-3.1-realtime-plus`；配置结构允许未来同 provider 加入其他模型。
+`QwenRealtimeAdapter` 是首个实现。它负责千问 WebSocket 协议、会话配置、`voice` 设置、事件映射、重连范围内的网络错误与正常关闭。首期支持 `qwen-audio-3.1-realtime-plus` 与 `qwen-audio-3.0-realtime-plus`；配置结构允许未来同 provider 加入其他模型。
 
 经典管线保持当前 `AgentSession` 与 Qwen TTS 实现。模式分发收敛在单独的 runtime factory，避免继续增长 `agent.py` 中的大型条件分支。
 
