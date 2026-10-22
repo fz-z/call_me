@@ -29,7 +29,7 @@ def _user_can_access(db, agent_id: str, user_id: str, role: str) -> bool:
     return row is not None and row["owner_id"] == user_id
 
 
-def _runtime_call_log_fields(runtime: dict) -> tuple[str, str | None, str | None, str | None]:
+def _runtime_call_log_fields(runtime: dict) -> tuple[str, str | None, str | None]:
     """Ensure the selected runtime is usable before a call log is created."""
     runtime_mode = runtime["runtime_mode"]
     if runtime_mode == "realtime":
@@ -40,10 +40,10 @@ def _runtime_call_log_fields(runtime: dict) -> tuple[str, str | None, str | None
                 status_code=400,
                 detail="Realtime agent configuration is incomplete",
             )
-        return runtime_mode, realtime["provider"], realtime["model"], realtime["name"]
+        return runtime_mode, realtime["provider"], realtime["model"]
 
     pipeline = runtime.get("model_config")
-    return runtime_mode, pipeline["provider"] if pipeline else None, pipeline["model"] if pipeline else None, None
+    return runtime_mode, pipeline["provider"] if pipeline else None, pipeline["model"] if pipeline else None
 
 
 @router.post("/token", response_model=TokenResponse)
@@ -58,7 +58,14 @@ def get_call_token(body: TokenRequest, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=403, detail="No permission to use this agent")
 
         runtime = resolve_agent_runtime_config(db, agent_row)
-        runtime_mode, provider, model, runtime_config_name = _runtime_call_log_fields(runtime)
+        runtime_mode, provider, model = _runtime_call_log_fields(runtime)
+        runtime_config_name = None
+        if runtime_mode == "realtime":
+            config = db.execute(
+                "SELECT name FROM realtime_configs WHERE id = ?",
+                (agent_row["realtime_config_id"],),
+            ).fetchone()
+            runtime_config_name = config["name"] if config else None
 
         room_name = f"call_{uuid.uuid4().hex[:12]}"
 
