@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from database import _sync_conn, pwd_context
 from models import UserOut, AgentOut, CallLogOut, CallLogListResponse, StatsOverview, StatsTrendItem, StatsTopItem, AdminCreateUser, AdminResetPassword
@@ -159,8 +159,8 @@ def list_call_logs(
     agent_id: str | None = None,
     user_id: str | None = None,
     status: str | None = None,
-    page: int = 1,
-    page_size: int = 20,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     admin: dict = Depends(require_admin),
 ):
     db = _sync_conn()
@@ -187,18 +187,45 @@ def list_call_logs(
 
         offset = (page - 1) * page_size
         rows = db.execute(
-            f"""SELECT cl.*, a.alias as agent_alias, u.username as caller_username
+            f"""SELECT cl.id, cl.agent_id, cl.caller_user_id, cl.room_name,
+                       cl.started_at, cl.ended_at, cl.duration_seconds, cl.status,
+                       cl.runtime_mode, cl.provider, cl.model, cl.runtime_config_name,
+                       cl.failure_stage, cl.failure_reason,
+                       CASE WHEN cl.transcript IS NOT NULL AND cl.transcript != ''
+                            THEN 1 ELSE 0 END AS has_transcript,
+                       a.alias AS agent_alias, u.username AS caller_username
                 FROM call_logs cl
                 JOIN agents a ON cl.agent_id = a.id
                 JOIN users u ON cl.caller_user_id = u.id
                 {where}
-                ORDER BY cl.started_at DESC
+                ORDER BY cl.started_at DESC, cl.id DESC
                 LIMIT ? OFFSET ?""",
             params + [page_size, offset],
         ).fetchall()
 
         items = [CallLogOut(**dict(r)) for r in rows]
         return CallLogListResponse(items=items, total=total, page=page, page_size=page_size)
+    finally:
+        db.close()
+
+
+@router.get("/call-logs/{call_log_id}", response_model=CallLogOut)
+def get_call_log_detail(call_log_id: str, admin: dict = Depends(require_admin)):
+    db = _sync_conn()
+    try:
+        row = db.execute(
+            """SELECT cl.*, a.alias AS agent_alias, u.username AS caller_username,
+                      CASE WHEN cl.transcript IS NOT NULL AND cl.transcript != ''
+                           THEN 1 ELSE 0 END AS has_transcript
+               FROM call_logs cl
+               JOIN agents a ON cl.agent_id = a.id
+               JOIN users u ON cl.caller_user_id = u.id
+               WHERE cl.id = ?""",
+            (call_log_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Call log not found")
+        return CallLogOut(**dict(row))
     finally:
         db.close()
 

@@ -211,6 +211,98 @@ class TestCallLog:
 
 
 class TestCallLogList:
+    def test_rejects_invalid_pagination(self, clean_db):
+        for params in ("page=0", "page=-1", "page_size=0", "page_size=101"):
+            response = client.get(f"/api/admin/call-logs?{params}", headers=_admin_header())
+            assert response.status_code == 422, params
+
+    def test_list_indexes_cover_sort_and_common_filters(self, clean_db):
+        from database import _sync_conn
+
+        db = _sync_conn()
+        try:
+            indexes = {row["name"] for row in db.execute("PRAGMA index_list(call_logs)").fetchall()}
+            assert {
+                "idx_call_logs_started_id",
+                "idx_call_logs_status_started_id",
+                "idx_call_logs_agent_started_id",
+                "idx_call_logs_caller_started_id",
+            } <= indexes
+            plans = (
+                ("SELECT id FROM call_logs ORDER BY started_at DESC, id DESC LIMIT 20", (), "idx_call_logs_started_id"),
+                ("SELECT id FROM call_logs WHERE status = ? ORDER BY started_at DESC, id DESC LIMIT 20", ("completed",), "idx_call_logs_status_started_id"),
+            )
+            for sql, params, index_name in plans:
+                details = " ".join(row["detail"] for row in db.execute("EXPLAIN QUERY PLAN " + sql, params).fetchall())
+                assert index_name in details
+                assert "USE TEMP B-TREE" not in details
+        finally:
+            db.close()
+
+    def test_compact_list_and_detail_load_transcript(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
+        owner_headers = _auth_header("detail-caller", "pw")
+        agent = client.post(
+            "/api/agents", headers=owner_headers,
+            json={"alias": "Details", "voice_pool_id": voice_pool_id},
+        )
+        assert agent.status_code == 200, agent.text
+        assert client.post(
+            "/api/call/token", headers=owner_headers, json={"agent_id": agent.json()["id"]}
+        ).status_code == 200
+
+        from database import _sync_conn
+        db = _sync_conn()
+        transcript = '[{"role":"assistant","text":"' + "hello" * 1000 + '"}]'
+        try:
+            log_id = db.execute("SELECT id FROM call_logs").fetchone()["id"]
+            db.execute("UPDATE call_logs SET transcript = ? WHERE id = ?", (transcript, log_id))
+            db.commit()
+        finally:
+            db.close()
+
+        listed = client.get("/api/admin/call-logs", headers=_admin_header())
+        assert listed.status_code == 200, listed.text
+        item = listed.json()["items"][0]
+        assert item["id"] == log_id
+        assert item["has_transcript"] is True
+        assert item.get("transcript") is None
+        assert transcript not in listed.text
+
+        detail = client.get(f"/api/admin/call-logs/{log_id}", headers=_admin_header())
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["transcript"] == transcript
+        assert client.get(f"/api/admin/call-logs/{uuid.uuid4()}", headers=_admin_header()).status_code == 404
+        assert client.get(f"/api/admin/call-logs/{log_id}", headers=owner_headers).status_code == 403
+
+    def test_stable_order_for_same_timestamp(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
+        owner_headers = _auth_header("order-caller", "pw")
+        agent = client.post(
+            "/api/agents", headers=owner_headers,
+            json={"alias": "Ordering", "voice_pool_id": voice_pool_id},
+        )
+        assert agent.status_code == 200, agent.text
+        for _ in range(3):
+            assert client.post(
+                "/api/call/token", headers=owner_headers, json={"agent_id": agent.json()["id"]}
+            ).status_code == 200
+
+        from database import _sync_conn
+        db = _sync_conn()
+        try:
+            db.execute("UPDATE call_logs SET started_at = ?", ("2026-10-22T00:00:00+00:00",))
+            db.commit()
+            expected = [row["id"] for row in db.execute("SELECT id FROM call_logs ORDER BY id DESC").fetchall()]
+        finally:
+            db.close()
+
+        first = client.get("/api/admin/call-logs?page=1&page_size=2", headers=_admin_header())
+        second = client.get("/api/admin/call-logs?page=2&page_size=2", headers=_admin_header())
+        assert first.status_code == second.status_code == 200
+        assert first.json()["total"] == 3
+        assert [item["id"] for item in first.json()["items"] + second.json()["items"]] == expected
+
     def test_list_empty(self, clean_db):
         resp = client.get("/api/admin/call-logs", headers=_admin_header())
         assert resp.status_code == 200

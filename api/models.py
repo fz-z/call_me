@@ -309,9 +309,11 @@ class CallLogOut(BaseModel):
     duration_seconds: Optional[int] = None
     status: str
     transcript: Optional[str] = None
+    has_transcript: bool = False
     runtime_mode: str = "pipeline"
     provider: Optional[str] = None
     model: Optional[str] = None
+    runtime_config_name: Optional[str] = None
     failure_stage: Optional[str] = None
     failure_reason: Optional[str] = None
 

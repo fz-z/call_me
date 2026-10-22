@@ -450,6 +450,14 @@ def init_db():
             except sqlite3.OperationalError:
                 pass
 
+        for index_name, columns in (
+            ("idx_call_logs_started_id", "started_at DESC, id DESC"),
+            ("idx_call_logs_status_started_id", "status, started_at DESC, id DESC"),
+            ("idx_call_logs_agent_started_id", "agent_id, started_at DESC, id DESC"),
+            ("idx_call_logs_caller_started_id", "caller_user_id, started_at DESC, id DESC"),
+        ):
+            conn.execute(f"CREATE INDEX IF NOT EXISTS {index_name} ON call_logs ({columns})")
+
         conn.commit()
     finally:
         conn.close()
