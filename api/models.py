@@ -5,6 +5,14 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, field_validator
 
+MAX_GREETING_TEXT_LENGTH = 300
+
+def _normalize_greeting_text(value: str) -> str:
+    value = value.strip()
+    if len(value) > MAX_GREETING_TEXT_LENGTH:
+        raise ValueError("greeting_text must be 300 characters or fewer")
+    return value
+
 
 class UserOut(BaseModel):
     id: str
@@ -45,6 +53,7 @@ class AuthResponse(BaseModel):
 class AgentCreate(BaseModel):
     alias: str
     system_prompt: str = ""
+    greeting_text: str = ""
     voice_pool_id: str
     model_config_id: Optional[str] = None
     tts_config_id: Optional[str] = None
@@ -54,10 +63,13 @@ class AgentCreate(BaseModel):
     speech_rate: float = 1.0
     allow_interruptions: bool = True
 
+    _validate_greeting_text = field_validator("greeting_text")(_normalize_greeting_text)
+
 
 class AgentUpdate(BaseModel):
     alias: Optional[str] = None
     system_prompt: Optional[str] = None
+    greeting_text: Optional[str] = None
     model_config_id: Optional[str] = None
     voice_pool_id: Optional[str] = None
     tts_config_id: Optional[str] = None
@@ -67,12 +79,18 @@ class AgentUpdate(BaseModel):
     speech_rate: Optional[float] = None
     allow_interruptions: Optional[bool] = None
 
+    @field_validator("greeting_text")
+    @classmethod
+    def validate_greeting_text(cls, value: Optional[str]) -> Optional[str]:
+        return _normalize_greeting_text(value) if value is not None else None
+
 
 class AgentOut(BaseModel):
     id: str
     alias: str
     voice_pool_id: Optional[str] = None
     system_prompt: str
+    greeting_text: str = ""
     owner_id: str
     source_agent_id: Optional[str] = None
     model_config_id: Optional[str] = None

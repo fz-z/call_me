@@ -142,6 +142,24 @@ class TestAgentCRUD:
         )
         assert invalid.status_code == 400
 
+    def test_realtime_agent_persists_fixed_greeting(self, clean_db):
+        voice_pool_id = _get_voice_pool_id()
+        config = _create_realtime_config(voice_pool_id)
+        created = client.post("/api/agents", headers=_auth_header(), json={
+            "alias": "Greeting Agent", "system_prompt": "保持自然对话",
+            "greeting_text": "您好，欢迎来电。", "voice_pool_id": voice_pool_id,
+            "runtime_mode": "realtime", "realtime_config_id": config["id"],
+        })
+        assert created.status_code == 200, created.text
+        assert created.json()["greeting_text"] == "您好，欢迎来电。"
+        updated = client.patch(f"/api/agents/{created.json()['id']}", headers=_auth_header(),
+                               json={"greeting_text": "  您好，我是小助手。  "})
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["greeting_text"] == "您好，我是小助手。"
+        invalid = client.patch(f"/api/agents/{created.json()['id']}", headers=_auth_header(),
+                               json={"greeting_text": "开" * 301})
+        assert invalid.status_code == 422
+
     def test_pipeline_agent_defaults_to_pipeline_runtime(self, clean_db):
         response = client.post(
             "/api/agents",

@@ -45,6 +45,7 @@ test('builds a realtime agent payload without classic runtime fields', () => {
   }), {
     alias: '实时助手',
     system_prompt: '保持自然对话',
+    greeting_text: '',
     voice_pool_id: 'voice-a',
     runtime_mode: 'realtime',
     realtime_config_id: 'realtime-a',
@@ -69,6 +70,7 @@ test('builds a pipeline agent payload without a realtime configuration', () => {
   }), {
     alias: '经典助手',
     system_prompt: '',
+    greeting_text: '',
     voice_pool_id: 'voice-a',
     runtime_mode: 'pipeline',
     realtime_config_id: null,
@@ -78,6 +80,13 @@ test('builds a pipeline agent payload without a realtime configuration', () => {
     speech_rate: 1.0,
     allow_interruptions: true,
   });
+});
+
+test('passes a fixed greeting through the realtime payload', () => {
+  assert.equal(buildAgentRuntimePayload({
+    alias: '实时助手', systemPrompt: '', greetingText: '您好，欢迎来电。',
+    voicePoolId: 'voice-a', runtimeMode: 'realtime', realtimeConfigId: 'realtime-a',
+  }).greeting_text, '您好，欢迎来电。');
 });
 
 test('passes the per-agent interruption setting through', () => {

@@ -17,6 +17,7 @@ export function filterClassicVoices(voices) {
 export function buildAgentRuntimePayload({
   alias,
   systemPrompt,
+  greetingText,
   voicePoolId,
   runtimeMode,
   realtimeConfigId,
@@ -30,6 +31,7 @@ export function buildAgentRuntimePayload({
   return {
     alias,
     system_prompt: systemPrompt,
+    greeting_text: greetingText || '',
     voice_pool_id: voicePoolId,
     runtime_mode: realtime ? 'realtime' : 'pipeline',
     realtime_config_id: realtime ? (realtimeConfigId || null) : null,

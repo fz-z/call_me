@@ -117,6 +117,7 @@ class TestCallTokenSecrets:
             headers=owner_headers,
             json={
                 "alias": "Realtime worker",
+                "greeting_text": "您好，欢迎来电。",
                 "voice_pool_id": voice_pool_id,
                 "runtime_mode": "realtime",
                 "realtime_config_id": config.json()["id"],
@@ -132,6 +133,7 @@ class TestCallTokenSecrets:
         assert response.status_code == 200, response.text
         runtime = response.json()
         assert runtime["runtime_mode"] == "realtime"
+        assert runtime["greeting_text"] == "您好，欢迎来电。"
         assert runtime["realtime_config"] == {
             "provider": "qwen",
             "model": "qwen-audio-3.1-realtime-plus",

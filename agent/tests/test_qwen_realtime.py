@@ -374,6 +374,16 @@ class QwenRealtimeAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(greeting_item["item"]["content"][0]["type"], "input_text")
         self.assertEqual(websocket.sent[2]["type"], "response.create")
 
+    async def test_fixed_greeting_is_added_to_session_instructions(self):
+        websocket = FakeWebSocket([FakeMessage("CLOSE")])
+        config = runtime_config(greeting_text="您好，欢迎来电。")
+        with self.assertRaises(RealtimeRuntimeError):
+            await QwenRealtimeAdapter(config, session_factory=lambda: FakeSession(websocket)).run(config, FakeBridge())
+        instructions = websocket.sent[0]["session"]["instructions"]
+        self.assertIn("Answer clearly.", instructions)
+        self.assertIn("您好，欢迎来电。", instructions)
+        self.assertIn("首个响应", instructions)
+
     async def test_connection_model_query_is_authoritative_and_preserves_other_endpoint_options(self):
         websocket = FakeWebSocket([FakeMessage("CLOSE")])
         session = FakeSession(websocket)

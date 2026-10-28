@@ -182,6 +182,7 @@ def resolve_agent_runtime_config(db, agent_row) -> dict:
         "agent_id": agent_row["id"],
         "alias": agent_row["alias"],
         "system_prompt": agent_row["system_prompt"],
+        "greeting_text": agent_row["greeting_text"] or "",
         "runtime_mode": runtime_mode,
         "speech_rate": float(agent_row["speech_rate"] or 1.0),
         "allow_interruptions": bool(agent_row["allow_interruptions"]),

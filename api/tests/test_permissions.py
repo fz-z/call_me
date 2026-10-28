@@ -71,6 +71,7 @@ class TestPermissions:
             headers=owner_headers,
             json={
                 "alias": "Realtime source",
+                "greeting_text": "您好，欢迎来电。",
                 "voice_pool_id": voice_pool_id,
                 "runtime_mode": "realtime",
                 "realtime_config_id": config_id,
@@ -88,6 +89,7 @@ class TestPermissions:
         assert copy.status_code == 200, copy.text
         assert copy.json()["runtime_mode"] == "realtime"
         assert copy.json()["realtime_config_id"] == config_id
+        assert copy.json()["greeting_text"] == "您好，欢迎来电。"
 
     def test_grant_and_access(self, clean_db):
         voice_pool_id = _get_voice_pool_id()

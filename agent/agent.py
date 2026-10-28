@@ -669,6 +669,7 @@ async def run_realtime_call(ctx: JobContext, runtime: dict, call_log_id: str) ->
         api_key=realtime["api_key"],
         provider_voice_id=realtime["voice_id"],
         system_prompt=runtime.get("system_prompt") or "",
+        greeting_text=runtime.get("greeting_text") or "",
         speech_rate=float(runtime.get("speech_rate") or 1.0),
         allow_interruptions=bool(runtime.get("allow_interruptions", True)),
     )

@@ -80,7 +80,7 @@ class TestDatabaseInit:
             agent_columns = {
                 row["name"] for row in conn.execute("PRAGMA table_info(agents)").fetchall()
             }
-            assert {"runtime_mode", "realtime_config_id"} <= agent_columns
+            assert {"runtime_mode", "realtime_config_id", "greeting_text"} <= agent_columns
 
             call_log_columns = {
                 row["name"] for row in conn.execute("PRAGMA table_info(call_logs)").fetchall()

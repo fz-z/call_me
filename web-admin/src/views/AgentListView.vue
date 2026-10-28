@@ -41,6 +41,7 @@
         <h3>编辑 Agent</h3>
         <input v-model="editForm.alias" placeholder="别名" required />
         <textarea v-model="editForm.system_prompt" rows="5" placeholder="人设 (system prompt)" style="width:100%;background:#111;color:#ddd;border:1px solid #333;border-radius:6px;padding:10px;font-size:14px;margin-bottom:12px"></textarea>
+        <textarea v-if="editing?.runtime_mode === 'realtime'" v-model="editForm.greeting_text" rows="3" maxlength="300" placeholder="固定开场白（留空则由人设生成）" style="width:100%;background:#111;color:#ddd;border:1px solid #333;border-radius:6px;padding:10px;font-size:14px;margin-bottom:12px"></textarea>
         <label style="display:block;color:#888;font-size:12px;margin-bottom:6px">语速：{{ Number(editForm.speech_rate || 1).toFixed(1) }}x（0.5 慢 – 2.0 快）</label>
         <input v-model.number="editForm.speech_rate" type="range" min="0.5" max="2" step="0.1" style="width:100%;margin-bottom:12px" />
         <label style="display:flex;align-items:center;gap:6px;color:#bbb;font-size:12px;margin-bottom:12px"><input v-model="editForm.allow_interruptions" type="checkbox" style="width:auto;margin:0" /> 允许用户在 Agent 说话时打断</label>
@@ -76,7 +77,7 @@ const realtimeConfigs = ref([]);
 const showCreate = ref(false);
 const grantTarget = ref(null);
 const editing = ref(null);
-const editForm = ref({ alias: '', system_prompt: '', speech_rate: 1.0, photo_url: '', allow_interruptions: true });
+const editForm = ref({ alias: '', system_prompt: '', greeting_text: '', speech_rate: 1.0, photo_url: '', allow_interruptions: true });
 const editLoading = ref(false);
 const editError = ref('');
 const photoUploading = ref(false);
@@ -131,7 +132,7 @@ function openGrant(a) { grantTarget.value = a; }
 
 function startEdit(a) {
   editing.value = a;
-  editForm.value = { alias: a.alias, system_prompt: a.system_prompt || '', speech_rate: Number(a.speech_rate || 1.0), photo_url: a.photo_url || '', allow_interruptions: a.allow_interruptions !== false };
+  editForm.value = { alias: a.alias, system_prompt: a.system_prompt || '', greeting_text: a.greeting_text || '', speech_rate: Number(a.speech_rate || 1.0), photo_url: a.photo_url || '', allow_interruptions: a.allow_interruptions !== false };
   editError.value = '';
   photoError.value = '';
 }

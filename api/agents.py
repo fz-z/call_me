@@ -54,9 +54,9 @@ def create_agent(
         now = datetime.now(timezone.utc).isoformat()
         try:
             db.execute(
-                "INSERT INTO agents (id, alias, voice_id, system_prompt, owner_id, voice_pool_id, source_agent_id, model_config_id, tts_config_id, runtime_mode, realtime_config_id, photo_url, speech_rate, allow_interruptions, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO agents (id, alias, voice_id, system_prompt, greeting_text, owner_id, voice_pool_id, source_agent_id, model_config_id, tts_config_id, runtime_mode, realtime_config_id, photo_url, speech_rate, allow_interruptions, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    agent_id, body.alias, selection["voice_id"], body.system_prompt,
+                    agent_id, body.alias, selection["voice_id"], body.system_prompt, body.greeting_text,
                     user["id"], selection["voice_pool_id"], None,
                     selection["model_config_id"], selection["tts_config_id"],
                     selection["runtime_mode"], selection["realtime_config_id"], body.photo_url,
@@ -121,6 +121,7 @@ def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_curr
 
         new_alias = body.alias if body.alias is not None else row["alias"]
         new_prompt = body.system_prompt if body.system_prompt is not None else row["system_prompt"]
+        new_greeting_text = body.greeting_text if body.greeting_text is not None else row["greeting_text"]
         new_model_config_id = row["model_config_id"] if body.model_config_id is None else body.model_config_id
         new_tts_config_id = row["tts_config_id"] if body.tts_config_id is None else body.tts_config_id
         new_realtime_config_id = row["realtime_config_id"] if body.realtime_config_id is None else body.realtime_config_id
@@ -151,9 +152,9 @@ def update_agent(agent_id: str, body: AgentUpdate, user: dict = Depends(get_curr
         )
 
         db.execute(
-            "UPDATE agents SET alias=?, system_prompt=?, model_config_id=?, voice_pool_id=?, voice_id=?, tts_config_id=?, runtime_mode=?, realtime_config_id=?, photo_url=?, speech_rate=?, allow_interruptions=? WHERE id=?",
+            "UPDATE agents SET alias=?, system_prompt=?, greeting_text=?, model_config_id=?, voice_pool_id=?, voice_id=?, tts_config_id=?, runtime_mode=?, realtime_config_id=?, photo_url=?, speech_rate=?, allow_interruptions=? WHERE id=?",
             (
-                new_alias, new_prompt, selection["model_config_id"], selection["voice_pool_id"],
+                new_alias, new_prompt, new_greeting_text, selection["model_config_id"], selection["voice_pool_id"],
                 selection["voice_id"], selection["tts_config_id"], selection["runtime_mode"],
                 selection["realtime_config_id"], new_photo_url, new_speech_rate,
                 new_allow_interruptions, agent_id,

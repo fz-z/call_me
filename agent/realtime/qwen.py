@@ -21,6 +21,18 @@ OUTPUT_CHUNK_BYTES = 24_000 * 2 // 50  # 20 ms; never give LiveKit one long unca
 TranscriptHandler = Callable[[RealtimeEvent], Awaitable[None] | None]
 
 
+def _session_instructions(system_prompt: str, greeting_text: str) -> str:
+    greeting_text = greeting_text.strip()
+    if not greeting_text:
+        return system_prompt
+    return (
+        f"{system_prompt}\n\n"
+        "当前是通话的第一轮。首个响应必须且只能逐字朗读以下固定开场白，"
+        "不可添加、删减、改写或解释；朗读后等待用户输入。\n"
+        f"固定开场白：{greeting_text}"
+    )
+
+
 async def _maybe_await(value: Any) -> Any:
     if inspect.isawaitable(value):
         return await value
@@ -103,7 +115,7 @@ class QwenRealtimeAdapter:
                 {
                     "type": "session.update",
                     "session": {
-                        "instructions": config.system_prompt,
+                        "instructions": _session_instructions(config.system_prompt, config.greeting_text),
                         "voice": config.provider_voice_id,
                         "modalities": ["audio", "text"],
                         "input_audio_format": "pcm",

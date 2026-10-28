@@ -31,6 +31,7 @@
         <h3>编辑 {{ editingAgent.alias }}</h3>
         <input v-model="editAliasText" style="width:100%;background:#111;color:#ddd;border:1px solid #333;border-radius:6px;padding:8px 10px;font-size:14px;margin-bottom:8px;box-sizing:border-box" placeholder="Agent 名字" />
         <textarea v-model="editPromptText" rows="6" style="width:100%;background:#111;color:#ddd;border:1px solid #333;border-radius:6px;padding:10px;font-size:14px" placeholder="输入新的 system prompt"></textarea>
+        <textarea v-if="editingAgent.runtime_mode === 'realtime'" v-model="editGreetingText" rows="3" maxlength="300" style="width:100%;background:#111;color:#ddd;border:1px solid #333;border-radius:6px;padding:10px;font-size:14px" placeholder="固定开场白（留空则由人设生成）"></textarea>
         <label style="display:block;margin:10px 0 6px;color:#888;font-size:12px">语速：{{ Number(editSpeechRate || 1).toFixed(1) }}x（0.5 慢 – 2.0 快）</label>
         <input v-model.number="editSpeechRate" type="range" min="0.5" max="2" step="0.1" style="width:100%;margin-bottom:8px" />
         <label style="display:flex;align-items:center;gap:6px;color:#bbb;font-size:12px;margin-bottom:8px"><input v-model="editAllowInterruptions" type="checkbox" style="width:auto;margin:0" /> 允许用户在 Agent 说话时打断</label>
@@ -69,6 +70,7 @@ const voices = ref([]);
 const editingAgent = ref(null);
 const editAliasText = ref('');
 const editPromptText = ref('');
+const editGreetingText = ref('');
 const editPhotoUrl = ref('');
 const editSpeechRate = ref(1.0);
 const editAllowInterruptions = ref(true);
@@ -95,6 +97,7 @@ function startEdit(agent) {
   editingAgent.value = agent;
   editAliasText.value = agent.alias || '';
   editPromptText.value = agent.system_prompt || '';
+  editGreetingText.value = agent.greeting_text || '';
   editSpeechRate.value = Number(agent.speech_rate || 1.0);
   editAllowInterruptions.value = agent.allow_interruptions !== false;
   editPhotoUrl.value = agent.photo_url || '';
@@ -129,6 +132,7 @@ async function saveEdit() {
     await api.patch(`/agents/${editingAgent.value.id}`, {
       alias: editAliasText.value.trim(),
       system_prompt: editPromptText.value.trim(),
+      greeting_text: editGreetingText.value.trim(),
       photo_url: editPhotoUrl.value,
       speech_rate: Number(editSpeechRate.value),
       allow_interruptions: Boolean(editAllowInterruptions.value),

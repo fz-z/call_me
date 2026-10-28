@@ -27,6 +27,7 @@ class RealtimeRuntimeConfig:
     api_key: str
     provider_voice_id: str
     system_prompt: str
+    greeting_text: str = ""
     speech_rate: float = 1.0
     allow_interruptions: bool = True
 

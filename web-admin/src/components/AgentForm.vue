@@ -44,6 +44,7 @@
         </div>
         <p v-if="uploadError" class="error">{{ uploadError }}</p>
         <textarea v-model="systemPrompt" rows="5" placeholder="人设描述（system prompt）"></textarea>
+        <template v-if="runtimeMode === 'realtime'"><label>固定开场白（仅端到端实时）</label><textarea v-model="greetingText" rows="3" maxlength="300" placeholder="留空则由人设生成开场白"></textarea><p class="hint">模型会被要求首句朗读此文本，但其输出不是确定性 TTS。</p></template>
         <label>语速：{{ speechRate.toFixed(1) }}x（0.5 慢 – 2.0 快）</label>
         <input v-model.number="speechRate" type="range" min="0.5" max="2" step="0.1" />
         <label class="interrupt-option"><input v-model="allowInterruptions" type="checkbox" /> 允许用户在 Agent 说话时打断</label>
@@ -60,10 +61,10 @@ import { computed, onMounted, ref } from 'vue';
 import api from '../api.js';
 import { buildAgentRuntimePayload, filterClassicVoices, filterRealtimeVoices, runtimeDisplayName } from '../utils/agentRuntimeForm.js';
 
-const props = defineProps({ editId: String, editAlias: String, editPrompt: String, editModelConfigId: String, editVoicePoolId: String, editTtsConfigId: String, editRealtimeConfigId: String, editRuntimeMode: String, editPhotoUrl: String, editSpeechRate: [String, Number], editAllowInterruptions: [String, Boolean] });
+const props = defineProps({ editId: String, editAlias: String, editPrompt: String, editGreetingText: String, editModelConfigId: String, editVoicePoolId: String, editTtsConfigId: String, editRealtimeConfigId: String, editRuntimeMode: String, editPhotoUrl: String, editSpeechRate: [String, Number], editAllowInterruptions: [String, Boolean] });
 const emit = defineEmits(['close', 'saved']);
 const step = ref(1); const runtimeMode = ref(props.editRuntimeMode || 'pipeline'); const allVoices = ref([]); const bindingsByVoice = ref({}); const ttsByVoice = ref({}); const modelConfigs = ref([]); const realtimeConfigs = ref([]);
-const selectedVoiceId = ref(props.editVoicePoolId || ''); const selectedTtsConfigId = ref(props.editTtsConfigId || ''); const selectedModelConfigId = ref(props.editModelConfigId || ''); const selectedRealtimeConfigId = ref(props.editRealtimeConfigId || ''); const alias = ref(props.editAlias || ''); const systemPrompt = ref(props.editPrompt || ''); const speechRate = ref(props.editSpeechRate == null ? 1.0 : Number(props.editSpeechRate)); const allowInterruptions = ref(props.editAllowInterruptions == null ? true : Boolean(props.editAllowInterruptions)); const photoUrl = ref(props.editPhotoUrl || ''); const uploading = ref(false); const uploadError = ref(''); const saving = ref(false); const error = ref('');
+const selectedVoiceId = ref(props.editVoicePoolId || ''); const selectedTtsConfigId = ref(props.editTtsConfigId || ''); const selectedModelConfigId = ref(props.editModelConfigId || ''); const selectedRealtimeConfigId = ref(props.editRealtimeConfigId || ''); const alias = ref(props.editAlias || ''); const systemPrompt = ref(props.editPrompt || ''); const greetingText = ref(props.editGreetingText || ''); const speechRate = ref(props.editSpeechRate == null ? 1.0 : Number(props.editSpeechRate)); const allowInterruptions = ref(props.editAllowInterruptions == null ? true : Boolean(props.editAllowInterruptions)); const photoUrl = ref(props.editPhotoUrl || ''); const uploading = ref(false); const uploadError = ref(''); const saving = ref(false); const error = ref('');
 const selectedVoice = computed(() => allVoices.value.find((voice) => voice.id === selectedVoiceId.value));
 const classicVoices = computed(() => filterClassicVoices(allVoices.value));
 const selectedVoiceTtsConfigs = computed(() => ttsByVoice.value[selectedVoiceId.value] || []);
@@ -114,7 +115,7 @@ async function uploadPhoto(event) {
     event.target.value = '';
   }
 }
-async function submit() { if (!alias.value.trim()) { error.value = '请输入 Agent 别名'; return; } saving.value = true; error.value = ''; try { const body = buildAgentRuntimePayload({ alias: alias.value.trim(), systemPrompt: systemPrompt.value, voicePoolId: selectedVoiceId.value, runtimeMode: runtimeMode.value, realtimeConfigId: selectedRealtimeConfigId.value, modelConfigId: selectedModelConfigId.value, ttsConfigId: selectedTtsConfigId.value, photoUrl: photoUrl.value, speechRate: speechRate.value, allowInterruptions: allowInterruptions.value }); if (props.editId) await api.patch(`/agents/${props.editId}`, body); else await api.post('/agents', body); emit('saved'); emit('close'); } catch (requestError) { error.value = requestError.response?.data?.detail || '保存失败'; } finally { saving.value = false; } }
+async function submit() { if (!alias.value.trim()) { error.value = '请输入 Agent 别名'; return; } saving.value = true; error.value = ''; try { const body = buildAgentRuntimePayload({ alias: alias.value.trim(), systemPrompt: systemPrompt.value, greetingText: greetingText.value, voicePoolId: selectedVoiceId.value, runtimeMode: runtimeMode.value, realtimeConfigId: selectedRealtimeConfigId.value, modelConfigId: selectedModelConfigId.value, ttsConfigId: selectedTtsConfigId.value, photoUrl: photoUrl.value, speechRate: speechRate.value, allowInterruptions: allowInterruptions.value }); if (props.editId) await api.patch(`/agents/${props.editId}`, body); else await api.post('/agents', body); emit('saved'); emit('close'); } catch (requestError) { error.value = requestError.response?.data?.detail || '保存失败'; } finally { saving.value = false; } }
 onMounted(load);
 </script>
 

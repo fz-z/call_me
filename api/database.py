@@ -50,6 +50,7 @@ def init_db():
                 alias TEXT NOT NULL,
                 voice_id TEXT NOT NULL,
                 system_prompt TEXT NOT NULL DEFAULT '',
+                greeting_text TEXT NOT NULL DEFAULT '',
                 owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 created_at TEXT NOT NULL,
                 speech_rate REAL NOT NULL DEFAULT 1.0,
@@ -357,6 +358,10 @@ def init_db():
         try:
             conn.execute("ALTER TABLE agents ADD COLUMN photo_url TEXT")
         except Exception:
+            pass
+        try:
+            conn.execute("ALTER TABLE agents ADD COLUMN greeting_text TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
             pass
 
         # Migration: realtime model configuration pool
