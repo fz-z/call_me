@@ -36,6 +36,24 @@ class RealtimeTranscriptCollectorTests(unittest.TestCase):
         self.collector.add("response.audio.delta", {"delta": "audio"}, 0.7)
         self.assertEqual(self.collector.turns, [{"role": "user", "text": "你好", "time": 0.5, "granularity": "turn"}])
 
+    def test_late_user_transcription_precedes_the_reply_already_in_progress(self):
+        self.collector.add("response.audio_transcript.delta", {"response_id": "greeting", "delta": "欢迎"}, 0.2)
+        self.collector.add("conversation.item.input_audio_transcription.completed", {"item_id": "u1", "transcript": "第一个问题"}, 1.0)
+        self.collector.add("response.audio_transcript.delta", {"response_id": "r1", "delta": "第一个回答"}, 1.5)
+        self.collector.add("response.audio_transcript.delta", {"response_id": "r2", "delta": "第二个回答"}, 5.0)
+        self.collector.add("conversation.item.input_audio_transcription.completed", {"item_id": "u2", "transcript": "第二个问题"}, 5.2)
+
+        self.assertEqual(
+            [(turn["role"], turn["text"]) for turn in self.collector.turns],
+            [
+                ("assistant", "欢迎"),
+                ("user", "第一个问题"),
+                ("assistant", "第一个回答"),
+                ("user", "第二个问题"),
+                ("assistant", "第二个回答"),
+            ],
+        )
+
     def test_blank_fragments_are_ignored_but_internal_spaces_are_preserved(self):
         self.collector.add("response.audio_transcript.delta", {"response_id": "r1", "delta": "hello"}, 0.2)
         self.collector.add("response.audio_transcript.delta", {"response_id": "r1", "delta": " world"}, 0.3)

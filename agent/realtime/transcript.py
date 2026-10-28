@@ -23,7 +23,7 @@ class RealtimeTranscriptCollector:
             turn = self._users.get(key) if key is not None else None
             if turn is None:
                 turn = {"role": "user", "text": text.strip(), "time": elapsed, "granularity": "turn"}
-                self.turns.append(turn)
+                self._insert_user_turn(turn)
                 if key is not None:
                     self._users[key] = turn
             else:
@@ -64,3 +64,19 @@ class RealtimeTranscriptCollector:
         else:
             parts[part_key] = parts.get(part_key, "") + text
         response["turn"]["text"] = "".join(parts.values()).strip()
+
+    def _insert_user_turn(self, turn: dict) -> None:
+        """Keep a delayed final user transcription ahead of its active reply."""
+        last_user_index = max(
+            (index for index, existing in enumerate(self.turns) if existing["role"] == "user"),
+            default=-1,
+        )
+        agent_indices = [
+            index
+            for index in range(last_user_index + 1, len(self.turns))
+            if self.turns[index]["role"] == "assistant"
+        ]
+        if len(agent_indices) >= 2:
+            self.turns.insert(agent_indices[-1], turn)
+            return
+        self.turns.append(turn)

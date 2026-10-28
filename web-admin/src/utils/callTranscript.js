@@ -41,5 +41,27 @@ export function groupTranscriptTurns(turns, runtimeMode) {
     }
     chain.lastTime = Number(turn.time);
   }
-  return grouped;
+  return orderDelayedUserTranscripts(grouped);
+}
+
+function orderDelayedUserTranscripts(turns) {
+  const ordered = [];
+  for (const turn of turns) {
+    if (turn.role !== 'user') {
+      ordered.push(turn);
+      continue;
+    }
+
+    const lastUserIndex = ordered.findLastIndex((existing) => existing.role === 'user');
+    const agentIndices = [];
+    for (let index = lastUserIndex + 1; index < ordered.length; index += 1) {
+      if (ordered[index].role === 'assistant') agentIndices.push(index);
+    }
+    if (agentIndices.length >= 2) {
+      ordered.splice(agentIndices.at(-1), 0, turn);
+    } else {
+      ordered.push(turn);
+    }
+  }
+  return ordered;
 }

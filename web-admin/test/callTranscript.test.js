@@ -67,6 +67,27 @@ test('new turn-level records and pipeline records are left separate', () => {
     turns.map(({ granularity, ...turn }) => turn));
 });
 
+test('a delayed user transcript is displayed before the Agent reply already in progress', () => {
+  const turns = [
+    { role: 'assistant', text: '开场问候', time: 0.2, granularity: 'turn' },
+    { role: 'user', text: '第一个问题', time: 2.0, granularity: 'turn' },
+    { role: 'assistant', text: '第一个回答', time: 2.5, granularity: 'turn' },
+    { role: 'assistant', text: '第二个回答', time: 8.1, granularity: 'turn' },
+    { role: 'user', text: '第二个问题', time: 8.4, granularity: 'turn' },
+  ];
+
+  assert.deepEqual(
+    groupTranscriptTurns(turns, 'realtime').map(({ role, text }) => ({ role, text })),
+    [
+      { role: 'assistant', text: '开场问候' },
+      { role: 'user', text: '第一个问题' },
+      { role: 'assistant', text: '第一个回答' },
+      { role: 'user', text: '第二个问题' },
+      { role: 'assistant', text: '第二个回答' },
+    ],
+  );
+});
+
 test('call log view applies display-only transcript grouping', () => {
   const view = readFileSync(new URL('../src/views/CallLogListView.vue', import.meta.url), 'utf8');
   assert.match(view, /groupTranscriptTurns/);
